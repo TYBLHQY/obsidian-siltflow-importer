@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Build and deploy the plugin to the Obsidian vault.
+# Usage: ./deploy.sh
+
+set -euo pipefail
+
+PLUGIN_DIR="/data/workspace/code-repo/obsidian-plugin-proj/obsidian-siltflow-importer"
+VAULT_PLUGIN_DIR="/data/workspace/obsidian-repo/new-obsidian-repo/.obsidian/plugins/siltflow-importer"
+
+cd "$PLUGIN_DIR"
+
+echo "==> Building..."
+pnpm build
+
+echo "==> Deploying to vault..."
+mkdir -p "$VAULT_PLUGIN_DIR"
+cp main.js manifest.json styles.css sql-wasm.wasm sql-wasm.js "$VAULT_PLUGIN_DIR/"
+rm -f "$PLUGIN_DIR/sql-wasm.wasm" "$PLUGIN_DIR/sql-wasm.js"
+
+echo "==> Done"
+ls -lh "$VAULT_PLUGIN_DIR"

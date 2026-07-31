@@ -8,8 +8,7 @@
  *  - Settings tab for configuration
  */
 import { Notice, Plugin, Modal } from "obsidian";
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync } from "fs";
 import type { App } from "obsidian";
 import { setWasmPath } from "./db";
 import {
@@ -31,24 +30,17 @@ export default class SiltflowImporterPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
 
-    // Configure sql.js WASM path (load from plugin directory)
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const manifest = require("../manifest.json") as { id: string };
-    try {
-      const pluginDir = (this.app.vault.adapter as unknown as { basePath: string }).basePath +
-        "/.obsidian/plugins/" + manifest.id;
-      setWasmPath(pluginDir);
-      // Also try the development path (project root)
-      if (!existsSync(join(pluginDir, "sql-wasm.wasm"))) {
-        setWasmPath(
-          "/data/workspace/code-repo/obsidian-plugin-proj/obsidian-siltflow-importer",
-        );
+    // Configure sql.js WASM path — resolve relative manifest.dir to absolute
+    const pluginDir = this.manifest.dir || "";
+    if (pluginDir) {
+      // manifest.dir is vault-relative (e.g. ".obsidian/plugins/siltflow-importer").
+      // adapter.basePath gives the vault root as an absolute filesystem path.
+      const adapter = this.app.vault.adapter;
+      const basePath = (adapter as unknown as { basePath?: string }).basePath;
+      if (basePath) {
+        const fullPath = basePath + "/" + pluginDir;
+        setWasmPath(fullPath);
       }
-    } catch {
-      // Fallback: try common locations
-      console.warn(
-        "[Siltflow Importer] Could not determine plugin directory, falling back to CDN",
-      );
     }
 
     // Settings tab
@@ -238,108 +230,134 @@ class DocumentSelectionModal extends Modal {
   }
 
   onOpen(): void {
-    const { contentEl } = this;
+    const { contentEl, modalEl, titleEl } = this;
 
+    // ── Modal container ────────────────────────────────────────
+    modalEl.addClass("siltflow-importer-modal");
+
+    // ── Header ─────────────────────────────────────────────────
+    titleEl.empty();
+    titleEl.createEl("span", { text: "Siltflow" }).addClass("siltflow-brand");
+    titleEl.createSpan({ text: "导入" });
+
+    // ── Body ───────────────────────────────────────────────────
     contentEl.empty();
-    contentEl.addClass("siltflow-importer-modal");
 
-    contentEl.createEl("h3", { text: "导入 Siltflow 数据库" });
-
-    // Document list
-    const listContainer = contentEl.createDiv({
-      cls: "siltflow-importer-list",
+    // Info bar
+    const infoBar = contentEl.createDiv("siltflow-info-bar");
+    infoBar.createSpan({
+      text: `共 ${this.documents.length} 个文档 — 勾选要导入的文档`,
     });
 
-    // Select all / deselect all buttons
-    const toolbarRow = contentEl.createDiv({
-      cls: "siltflow-importer-toolbar",
-    });
+    // ── Document list (scrollable) ─────────────────────────────
+    const listWrapper = contentEl.createDiv("siltflow-list-wrapper");
 
-    const selectAllBtn = toolbarRow.createEl("button", { text: "全选" });
+    for (const doc of this.documents) {
+      const row = listWrapper.createDiv("siltflow-doc-row");
+
+      const checkbox = row.createEl("input", {
+        type: "checkbox",
+        attr: { checked: "true" },
+      });
+      checkbox.addClass("siltflow-checkbox");
+      this.checkboxes.set(doc.id, checkbox);
+
+      const label = row.createEl("label", "siltflow-doc-label");
+      const titleLine = label.createDiv("siltflow-doc-title");
+      titleLine.setText(doc.title);
+
+      const metaLine = label.createDiv("siltflow-doc-meta");
+      if (doc.total_pages) {
+        metaLine.createSpan({ text: `${doc.total_pages} 页` });
+      }
+      if (doc.original_name && doc.original_name !== doc.title) {
+        metaLine.createSpan({ text: `来源: ${doc.original_name}` });
+      }
+    }
+
+    // ── Footer ─────────────────────────────────────────────────
+    const footer = contentEl.createDiv("siltflow-footer");
+
+    // Select all / none
+    const selectRow = footer.createDiv("siltflow-select-row");
+    const selectAllBtn = selectRow.createEl("button", {
+      text: "全选",
+      cls: "siltflow-btn-ghost",
+    });
     selectAllBtn.addEventListener("click", () => {
       this.checkboxes.forEach((cb) => (cb.checked = true));
     });
 
-    const deselectAllBtn = toolbarRow.createEl("button", { text: "取消全选" });
-    deselectAllBtn.addEventListener("click", () => {
+    const selectNoneBtn = selectRow.createEl("button", {
+      text: "取消",
+      cls: "siltflow-btn-ghost",
+    });
+    selectNoneBtn.addEventListener("click", () => {
       this.checkboxes.forEach((cb) => (cb.checked = false));
     });
 
-    // Document checkboxes
-    for (const doc of this.documents) {
-      const row = listContainer.createDiv({
-        cls: "siltflow-importer-row",
-      });
-
-      const label = row.createEl("label");
-      const cb = label.createEl("input", {
-        type: "checkbox",
-        attr: { checked: "true" },
-      });
-      this.checkboxes.set(doc.id, cb);
-
-      label.createSpan({ text: doc.title, cls: "siltflow-importer-title" });
-    }
-
-    // Incremental mode selector
-    const modeContainer = contentEl.createDiv({
-      cls: "siltflow-importer-mode",
+    const selectedCount = selectRow.createSpan("siltflow-selected-count");
+    selectedCount.setText(`已选 ${this.documents.length} 个`);
+    // Update count on changes
+    const updateCount = () => {
+      let n = 0;
+      this.checkboxes.forEach((cb) => (n += cb.checked ? 1 : 0));
+      selectedCount.setText(`已选 ${n} 个`);
+    };
+    this.checkboxes.forEach((cb) => {
+      cb.addEventListener("change", updateCount);
     });
 
-    modeContainer.createEl("span", { text: "增量模式: " });
-
-    const modeSelect = modeContainer.createEl("select");
-    const modes: Array<{ value: string; label: string }> = [
-      { value: "append", label: "增量追加" },
-      { value: "update", label: "增量更新" },
-      { value: "overwrite", label: "全量覆盖" },
+    // Mode selector
+    const modeRow = footer.createDiv("siltflow-mode-row");
+    modeRow.createSpan({ text: "导入模式", cls: "siltflow-label" });
+    const modeSelect = modeRow.createEl("select", "dropdown");
+    const modes: Array<{ value: string; label: string; desc: string }> = [
+      { value: "append", label: "增量追加", desc: "只添加新文档和标注" },
+      { value: "update", label: "增量更新", desc: "追加 + 更新已有 AI 结果" },
+      { value: "overwrite", label: "全量覆盖", desc: "删除全部重新生成" },
     ];
     for (const m of modes) {
-      const opt = modeSelect.createEl("option", {
-        text: m.label,
+      modeSelect.createEl("option", {
+        text: `${m.label} — ${m.desc}`,
         attr: { value: m.value },
       });
-      if (m.value === this.mode) {
-        opt.selected = true;
-      }
     }
+    modeSelect.value = this.mode;
     modeSelect.addEventListener("change", () => {
       this.mode = modeSelect.value;
     });
 
     // Action buttons
-    const buttonRow = contentEl.createDiv({
-      cls: "siltflow-importer-buttons",
-    });
+    const buttonRow = footer.createDiv("siltflow-button-row");
 
-    const cancelBtn = buttonRow.createEl("button", { text: "取消" });
+    const cancelBtn = buttonRow.createEl("button", {
+      text: "取消",
+      cls: "siltflow-btn-ghost",
+    });
     cancelBtn.addEventListener("click", () => {
       this.resolve(null);
       this.close();
     });
 
     const importBtn = buttonRow.createEl("button", {
-      text: `导入选中 (${
-        this.documents.filter(() => true).length
-      } 个文档)`,
-      cls: "mod-cta",
+      text: "开始导入",
+      cls: "mod-cta siltflow-import-btn",
     });
     importBtn.addEventListener("click", () => {
       const selected: string[] = [];
       this.checkboxes.forEach((cb, id) => {
         if (cb.checked) selected.push(id);
       });
-
-      // Save mode
       this.onModeChange(this.mode as "append" | "update" | "overwrite");
-
       this.resolve(selected);
       this.close();
     });
   }
 
   onClose(): void {
-    const { contentEl } = this;
+    const { contentEl, titleEl } = this;
     contentEl.empty();
+    titleEl.empty();
   }
 }

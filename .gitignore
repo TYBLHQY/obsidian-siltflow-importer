@@ -3,6 +3,7 @@
 !*.json
 !*.mjs
 !*.css
+!*.sh
 !src/
 !src/**
 !*.ts
@@ -15,5 +16,6 @@
 node_modules/
 main.js
 sql-wasm.wasm
+pnpm-lock.yaml
 
 .claude/
