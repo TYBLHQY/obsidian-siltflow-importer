@@ -14,7 +14,7 @@ pnpm build
 
 echo "==> Deploying to vault..."
 mkdir -p "$VAULT_PLUGIN_DIR"
-cp main.js manifest.json styles.css sql-wasm.wasm sql-wasm.js "$VAULT_PLUGIN_DIR/"
+cp main.js manifest.json styles.css sql-wasm.wasm sql-wasm.js icon.svg "$VAULT_PLUGIN_DIR/"
 rm -f "$PLUGIN_DIR/sql-wasm.wasm" "$PLUGIN_DIR/sql-wasm.js"
 
 echo "==> Done"

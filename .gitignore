@@ -1,21 +1,38 @@
-*
-!**/.*
-!*.json
-!*.mjs
-!*.css
-!*.sh
-!src/
-!src/**
-!*.ts
-!*.md
-!LICENSE
-
-# GitHub Actions workflows
-!.github/**
-!scripts/**
+# Dependencies
 node_modules/
-main.js
-sql-wasm.wasm
-pnpm-lock.yaml
 
+# Build output
+main.js
+*.wasm
+sql-wasm.js
+*.js.map
+
+# Package manager (only npm lock is tracked)
+pnpm-lock.yaml
+pnpm-lock.yaml.hash
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Environment
+.env
+.env.*
+
+# Claude
 .claude/
+
+# Obsidian test vault (if present)
+.obsidian/

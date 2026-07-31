@@ -7,8 +7,8 @@
  *  - Ribbon icon for quick access
  *  - Settings tab for configuration
  */
-import { Notice, Plugin, Modal } from "obsidian";
-import { existsSync, readFileSync } from "fs";
+import { Notice, Plugin, Modal, addIcon } from "obsidian";
+import { existsSync } from "fs";
 import type { App } from "obsidian";
 import { setWasmPath } from "./db";
 import {
@@ -20,6 +20,11 @@ import { importDatabase, type ImportResult } from "./importer";
 import { openDatabase, queryAll, closeDatabase } from "./db";
 import type { DocumentRow } from "./types";
 
+// Custom ribbon icon — user's original SVG
+const RIBBON_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24">
+    <path fill="currentColor" d="M15 2c1.94 0 3.59.7 4.95 2.05C21.3 5.41 22 7.06 22 9c0 1.56-.5 2.96-1.42 4.2c-.94 1.23-2.14 2.07-3.61 2.5l.03-.32V15c0-2.19-.77-4.07-2.35-5.65S11.19 7 9 7h-.37l-.33.03c.43-1.47 1.27-2.67 2.5-3.61C12.04 2.5 13.44 2 15 2M9 8a7 7 0 0 1 7 7a7 7 0 0 1-7 7a7 7 0 0 1-7-7a7 7 0 0 1 7-7m0 2a5 5 0 0 0-5 5a5 5 0 0 0 5 5a5 5 0 0 0 5-5a5 5 0 0 0-5-5"/>
+</svg>`;
+
 // ---------------------------------------------------------------------------
 // Plugin class
 // ---------------------------------------------------------------------------
@@ -30,24 +35,21 @@ export default class SiltflowImporterPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
 
-    // Configure sql.js WASM path — resolve relative manifest.dir to absolute
+    // Configure sql.js WASM path and ribbon icon
     const pluginDir = this.manifest.dir || "";
-    if (pluginDir) {
-      // manifest.dir is vault-relative (e.g. ".obsidian/plugins/siltflow-importer").
-      // adapter.basePath gives the vault root as an absolute filesystem path.
-      const adapter = this.app.vault.adapter;
-      const basePath = (adapter as unknown as { basePath?: string }).basePath;
-      if (basePath) {
-        const fullPath = basePath + "/" + pluginDir;
-        setWasmPath(fullPath);
-      }
+    const adapter = this.app.vault.adapter;
+    const basePath = (adapter as unknown as { basePath?: string }).basePath;
+    if (basePath && pluginDir) {
+      const fullPath = basePath + "/" + pluginDir;
+      setWasmPath(fullPath);
     }
 
     // Settings tab
     this.addSettingTab(new SiltflowImporterSettingTab(this.app, this));
 
-    // Ribbon icon
-    this.addRibbonIcon("database", "Import Siltflow database", () => {
+    // Register custom icon and add to ribbon
+    addIcon("siltflow-importer", RIBBON_ICON);
+    this.addRibbonIcon("siltflow-importer", "Import Siltflow database", () => {
       this.runImport();
     });
 
