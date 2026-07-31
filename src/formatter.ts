@@ -328,7 +328,7 @@ export function buildMarkdownNote(
 export interface FormatterOptions {
   includeAIResults: boolean;
   includeFSRSStats: boolean;
-  collapseCallouts: boolean;
+  calloutFold: "expanded" | "collapsed" | "none";
 }
 
 // ---------------------------------------------------------------------------
@@ -398,7 +398,12 @@ function buildAnnotationCallout(
   aiVersion: number,
   options: FormatterOptions,
 ): string {
-  const fold = options.collapseCallouts ? "-" : "+";
+  const fold =
+    options.calloutFold === "none"
+      ? ""
+      : options.calloutFold === "collapsed"
+        ? "+"
+        : "-";
   const titleText = ann.text
     ? ann.text.replace(/\n/g, " ").slice(0, 60)
     : ann.type;

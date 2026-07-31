@@ -162,7 +162,7 @@ export async function importDatabase(
         const content = buildMarkdownNote(data, {
           includeAIResults: settings.includeAIResults,
           includeFSRSStats: settings.includeFSRSStats,
-          collapseCallouts: settings.collapseCallouts,
+          calloutFold: settings.calloutFold,
         });
 
         const existingFile = vault.getAbstractFileByPath(filePath);
@@ -190,7 +190,7 @@ export async function importDatabase(
           const content = buildMarkdownNote(data, {
             includeAIResults: settings.includeAIResults,
             includeFSRSStats: settings.includeFSRSStats,
-            collapseCallouts: settings.collapseCallouts,
+            calloutFold: settings.calloutFold,
           });
           await vault.create(filePath, content);
           result.created++;
@@ -356,7 +356,12 @@ function buildAnnotationAppendix(
   const parts: string[] = [""];
   for (const ann of annotations) {
     const ai = aiResults.get(ann.id);
-    const fold = settings.collapseCallouts ? "-" : "+";
+    const fold =
+      settings.calloutFold === "none"
+        ? ""
+        : settings.calloutFold === "collapsed"
+          ? "+"
+          : "-";
     const titleText = ann.text
       ? ann.text.replace(/\n/g, " ").slice(0, 60)
       : ann.type;

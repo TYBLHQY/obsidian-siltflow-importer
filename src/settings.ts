@@ -17,8 +17,8 @@ export interface SiltflowImporterSettings {
   includeAIResults: boolean;
   /** Include FSRS card stats (total/new/due) in frontmatter. */
   includeFSRSStats: boolean;
-  /** Collapse annotation callouts by default. */
-  collapseCallouts: boolean;
+  /** Annotation callout fold behavior. */
+  calloutFold: "expanded" | "collapsed" | "none";
   /** Incremental import mode. */
   incrementalMode: "append" | "update" | "overwrite";
   /** Preserve Siltflow folder hierarchy in output. */
@@ -36,7 +36,7 @@ export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
   outputFolder: "Siltflow",
   includeAIResults: true,
   includeFSRSStats: true,
-  collapseCallouts: true,
+  calloutFold: "expanded",
   incrementalMode: "append",
   preserveFolderStructure: true,
   updateExistingAIResults: false,
@@ -119,13 +119,19 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Callout 默认折叠")
-      .setDesc("开启后标注 callout 默认收起，点击展开查看详情。")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.collapseCallouts)
+      .setName("Callout 折叠模式")
+      .setDesc("默认展开：标注内容展开可见；默认关闭：折叠需点击展开；不可折叠：无折叠按钮。")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("expanded", "默认展开")
+          .addOption("collapsed", "默认关闭")
+          .addOption("none", "不可折叠")
+          .setValue(this.plugin.settings.calloutFold)
           .onChange(async (value) => {
-            this.plugin.settings.collapseCallouts = value;
+            this.plugin.settings.calloutFold = value as
+              | "expanded"
+              | "collapsed"
+              | "none";
             await this.plugin.saveSettings();
           }),
       );
