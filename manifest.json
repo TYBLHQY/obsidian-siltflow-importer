@@ -1,0 +1,9 @@
+{
+	"id": "siltflow-importer",
+	"name": "Siltflow Importer",
+	"version": "1.0.0",
+	"minAppVersion": "1.9.0",
+	"description": "Import Siltflow SQLite database into Obsidian as bilingual Markdown notes with review stats and Base dashboard.",
+	"author": "MYQ",
+	"isDesktopOnly": true
+}

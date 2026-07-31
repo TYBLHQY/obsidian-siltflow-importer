@@ -1,0 +1,19 @@
+*
+!**/.*
+!*.json
+!*.mjs
+!*.css
+!src/
+!src/**
+!*.ts
+!*.md
+!LICENSE
+
+# GitHub Actions workflows
+!.github/**
+!scripts/**
+node_modules/
+main.js
+sql-wasm.wasm
+
+.claude/
