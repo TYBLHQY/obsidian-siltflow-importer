@@ -160,9 +160,9 @@ export async function importDatabase(
         const filePath = buildFilePath(data, settings);
         await ensureFolderExists(vault, getFolderFromPath(filePath));
         const content = buildMarkdownNote(data, {
-          annotationFormat: settings.annotationFormat,
           includeAIResults: settings.includeAIResults,
           includeFSRSStats: settings.includeFSRSStats,
+          collapseCallouts: settings.collapseCallouts,
         });
 
         const existingFile = vault.getAbstractFileByPath(filePath);
@@ -188,9 +188,9 @@ export async function importDatabase(
           // File was deleted — recreate
           const filePath = buildFilePath(data, settings);
           const content = buildMarkdownNote(data, {
-            annotationFormat: settings.annotationFormat,
             includeAIResults: settings.includeAIResults,
             includeFSRSStats: settings.includeFSRSStats,
+            collapseCallouts: settings.collapseCallouts,
           });
           await vault.create(filePath, content);
           result.created++;
@@ -356,7 +356,7 @@ function buildAnnotationAppendix(
   const parts: string[] = [""];
   for (const ann of annotations) {
     const ai = aiResults.get(ann.id);
-    const fold = ann.type === "highlight" ? "+" : "-";
+    const fold = settings.collapseCallouts ? "+" : "-";
     const titleText = ann.text
       ? ann.text.replace(/\n/g, " ").slice(0, 60)
       : ann.type;

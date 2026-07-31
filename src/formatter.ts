@@ -302,16 +302,12 @@ export function buildMarkdownNote(
   if (data.annotations.length > 0) {
     sections.push("---");
     sections.push("");
-    sections.push("## 标注");
+    sections.push("## Annotations");
     sections.push("");
 
     for (const ann of data.annotations) {
       const ai = data.aiResults.get(ann.id);
-      if (options.annotationFormat === "table") {
-        sections.push(buildAnnotationTable(ann, ai, data.aiVersion));
-      } else {
-        sections.push(buildAnnotationCallout(ann, ai, data.aiVersion, options));
-      }
+      sections.push(buildAnnotationCallout(ann, ai, data.aiVersion, options));
     }
   }
 
@@ -319,9 +315,9 @@ export function buildMarkdownNote(
 }
 
 export interface FormatterOptions {
-  annotationFormat: "callout" | "table";
   includeAIResults: boolean;
   includeFSRSStats: boolean;
+  collapseCallouts: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -391,7 +387,7 @@ function buildAnnotationCallout(
   aiVersion: number,
   options: FormatterOptions,
 ): string {
-  const fold = ann.type === "highlight" ? "+" : "-";
+  const fold = options.collapseCallouts ? "+" : "-";
   const titleText = ann.text
     ? ann.text.replace(/\n/g, " ").slice(0, 60)
     : ann.type;
@@ -439,18 +435,6 @@ function buildAnnotationCallout(
 
   parts.push("");
   return parts.join("\n");
-}
-
-function buildAnnotationTable(
-  ann: AnnotationRow,
-  ai: ParsedAIResult | undefined,
-  _aiVersion: number,
-): string {
-  // Simple markdown table for compact view
-  const page = ann.page_number ?? "-";
-  const text = (ann.text ?? "").slice(0, 80);
-  const translation = ai?.translation ?? "-";
-  return `| ${page} | ${text} | ${translation} |`;
 }
 
 // ---------------------------------------------------------------------------

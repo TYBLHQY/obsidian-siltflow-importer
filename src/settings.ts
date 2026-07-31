@@ -17,8 +17,8 @@ export interface SiltflowImporterSettings {
   includeAIResults: boolean;
   /** Include FSRS card stats (total/new/due) in frontmatter. */
   includeFSRSStats: boolean;
-  /** Annotation display format. */
-  annotationFormat: "callout" | "table";
+  /** Collapse annotation callouts by default. */
+  collapseCallouts: boolean;
   /** Incremental import mode. */
   incrementalMode: "append" | "update" | "overwrite";
   /** Preserve Siltflow folder hierarchy in output. */
@@ -36,7 +36,7 @@ export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
   outputFolder: "Siltflow",
   includeAIResults: true,
   includeFSRSStats: true,
-  annotationFormat: "callout",
+  collapseCallouts: false,
   incrementalMode: "append",
   preserveFolderStructure: true,
   updateExistingAIResults: false,
@@ -119,17 +119,13 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("标注格式")
-      .setDesc("Callout 格式提供可折叠的卡片式展示；Table 格式更紧凑。")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("callout", "Callout")
-          .addOption("table", "Table")
-          .setValue(this.plugin.settings.annotationFormat)
+      .setName("Callout 默认折叠")
+      .setDesc("开启后标注 callout 默认收起，点击展开查看详情。")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.collapseCallouts)
           .onChange(async (value) => {
-            this.plugin.settings.annotationFormat = value as
-              | "callout"
-              | "table";
+            this.plugin.settings.collapseCallouts = value;
             await this.plugin.saveSettings();
           }),
       );
