@@ -385,7 +385,7 @@ function buildAnnotationAppendix(
     }
 
     if (ann.text) {
-      parts.push("> **原文**: " + ann.text.replace(/\n/g, "\n> "));
+      parts.push("> **Original**: " + ann.text.replace(/\n/g, "\n> "));
     }
 
     if (settings.includeAIResults && ai) {

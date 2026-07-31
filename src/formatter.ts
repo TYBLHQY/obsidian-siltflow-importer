@@ -2,7 +2,7 @@
  * Markdown formatter — converts Siltflow DB data into Obsidian Markdown notes.
  *
  * Output format: YAML frontmatter + document title + AI summary callout +
- * annotation callouts with bilingual content (原文 / 翻译 / 解释).
+ * annotation callouts with bilingual content (Original / Translation / Analysis).
  *
  * Each annotation callout embeds an HTML comment with its siltflow-annotation
  * ID and AI version for incremental import diffing.
@@ -430,7 +430,7 @@ function buildAnnotationCallout(
     bodyLines.push(`**Page**: ${ann.page_number}`);
   }
   if (ann.text) {
-    bodyLines.push("**原文**: " + ann.text.replace(/\n/g, "\n> "));
+    bodyLines.push("**Original**: " + ann.text.replace(/\n/g, "\n> "));
   }
 
   // ── AI results (matches upstream Siltflow card layout) ──
