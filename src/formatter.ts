@@ -430,7 +430,7 @@ function buildAnnotationCallout(
     bodyLines.push(`**Page**: ${ann.page_number}`);
   }
   if (ann.text) {
-    bodyLines.push("**Original**: " + ann.text.replace(/\n/g, "\n> "));
+    bodyLines.push(ann.text.replace(/\n/g, "\n> "));
   }
 
   // ── AI results (matches upstream Siltflow card layout) ──
