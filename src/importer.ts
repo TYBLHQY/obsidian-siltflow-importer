@@ -356,7 +356,7 @@ function buildAnnotationAppendix(
   const parts: string[] = [""];
   for (const ann of annotations) {
     const ai = aiResults.get(ann.id);
-    const fold = settings.collapseCallouts ? "+" : "-";
+    const fold = settings.collapseCallouts ? "-" : "+";
     const titleText = ann.text
       ? ann.text.replace(/\n/g, " ").slice(0, 60)
       : ann.type;

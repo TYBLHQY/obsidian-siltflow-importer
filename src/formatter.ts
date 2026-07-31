@@ -398,7 +398,7 @@ function buildAnnotationCallout(
   aiVersion: number,
   options: FormatterOptions,
 ): string {
-  const fold = options.collapseCallouts ? "+" : "-";
+  const fold = options.collapseCallouts ? "-" : "+";
   const titleText = ann.text
     ? ann.text.replace(/\n/g, " ").slice(0, 60)
     : ann.type;

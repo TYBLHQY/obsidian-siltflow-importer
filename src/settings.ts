@@ -36,7 +36,7 @@ export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
   outputFolder: "Siltflow",
   includeAIResults: true,
   includeFSRSStats: true,
-  collapseCallouts: false,
+  collapseCallouts: true,
   incrementalMode: "append",
   preserveFolderStructure: true,
   updateExistingAIResults: false,
