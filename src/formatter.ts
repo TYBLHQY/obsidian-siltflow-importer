@@ -401,9 +401,9 @@ function buildAnnotationCallout(
   const fold =
     options.calloutFold === "none"
       ? ""
-      : options.calloutFold === "expanded"
-        ? "-"
-        : "+";
+      : options.calloutFold === "collapsed"
+        ? "+"
+        : "-";
   const titleText = ann.text
     ? ann.text.replace(/\n/g, " ").slice(0, 60)
     : ann.type;
