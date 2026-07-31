@@ -110,7 +110,15 @@ export async function importDatabase(
       }
     }
 
-    // 3. Filter documents
+    // 3. Group annotations by document (must precede doc filtering)
+    const annotationsByDoc = new Map<string, AnnotationRow[]>();
+    for (const ann of annotations) {
+      const arr = annotationsByDoc.get(ann.document_id) || [];
+      arr.push(ann);
+      annotationsByDoc.set(ann.document_id, arr);
+    }
+
+    // 4. Filter documents
     let docsToImport = documents;
     if (selectedDocIds.length > 0) {
       const idSet = new Set(selectedDocIds);
@@ -124,19 +132,11 @@ export async function importDatabase(
       });
     }
 
-    // 4. Load import index
+    // 5. Load import index
     const index = await loadImportIndex(vault, settings.outputFolder);
 
-    // 5. Process each document
+    // 6. Process each document
     const result: ImportResult = { created: 0, updated: 0, skipped: 0 };
-
-    // Group annotations by document
-    const annotationsByDoc = new Map<string, AnnotationRow[]>();
-    for (const ann of annotations) {
-      const arr = annotationsByDoc.get(ann.document_id) || [];
-      arr.push(ann);
-      annotationsByDoc.set(ann.document_id, arr);
-    }
 
     for (const doc of docsToImport) {
       const data: DocumentImportData = {
@@ -228,12 +228,12 @@ export async function importDatabase(
       }
     }
 
-    // 6. Save import index
+    // 7. Save import index
     index.lastImport = new Date().toISOString();
     index.dbPath = dbPath;
     await saveImportIndex(vault, settings.outputFolder, index);
 
-    // 7. Update .base dashboard
+    // 8. Update .base dashboard
     if (settings.createBaseFile) {
       await updateBaseDashboard(vault, settings.outputFolder);
     }
