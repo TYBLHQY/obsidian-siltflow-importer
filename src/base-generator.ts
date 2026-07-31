@@ -26,16 +26,19 @@ interface BaseTemplate {
 // Default template for first-time generation
 const BASE_TEMPLATE: BaseTemplate = {
   filters: {
-    and: ["file.hasTag('siltflow')", "file.inFolder('Siltflow')"],
+    and: [
+      `'file.hasTag("siltflow")'`,
+      `'file.inFolder("Siltflow")'`,
+    ],
   },
 
   formulas: {
-    days_since_import: "(now() - file.ctime).days",
+    days_since_import: `'(now() - file.ctime).days'`,
     study_progress:
-      "if(total_cards > 0, ((total_cards - new_cards - 0.0) / total_cards * 100).round(0).toString() + '%', '')",
+      `'if(total_cards > 0, ((total_cards - new_cards - 0.0) / total_cards * 100).round(0).toString() + "%", "")'`,
     urgency:
-      "if(due_cards > 0, '🔴 ' + due_cards, if(new_cards > 0, '🟡 new', '🟢 ok'))",
-    ai_version_display: "if(siltflow_ai_version, siltflow_ai_version, 'N/A')",
+      `'if(due_cards > 0, "🔴 " + due_cards, if(new_cards > 0, "🟡 new", "🟢 ok"))'`,
+    ai_version_display: `'if(siltflow_ai_version, siltflow_ai_version, "N/A")'`,
   },
 
   properties: {
@@ -75,7 +78,7 @@ const BASE_TEMPLATE: BaseTemplate = {
       type: "table",
       name: "待复习",
       filters: {
-        and: ["due_cards > 0"],
+        and: [`'due_cards > 0'`],
       },
       order: ["file.name", "due_cards", "new_cards", "formula.urgency"],
       summaries: {
@@ -186,13 +189,16 @@ function appendYAML(
       else {
         lines.push(`${pad}${key}:`);
         for (const item of value) {
-          lines.push(`${pad}  - ${formatBaseScalar(item)}`);
           if (typeof item === "object" && item !== null) {
+            lines.push(`${pad}  -`); // Start a new list item
             appendYAML(
               lines,
               item as Record<string, unknown>,
               indent + 2,
             );
+          } else {
+            // Primitive in an object array — shouldn't happen but guard
+            lines.push(`${pad}  - ${formatBaseScalar(item)}`);
           }
         }
       }
@@ -207,6 +213,13 @@ function appendYAML(
 
 function formatBaseScalar(value: unknown): string {
   if (typeof value === "string") {
+    // Already YAML-quoted — pass through as-is
+    if (
+      (value.startsWith("'") && value.endsWith("'")) ||
+      (value.startsWith('"') && value.endsWith('"'))
+    ) {
+      return value;
+    }
     // Quote strings that contain YAML special characters
     if (/[:{}[\]&*#?|!%@`]/.test(value) || value === "") {
       // Use single quotes for formulas that have double quotes inside

@@ -8,7 +8,7 @@
 import { Modal, Setting } from "obsidian";
 import type { App } from "obsidian";
 import { openDatabase, queryAll, closeDatabase } from "./db";
-import type { DocumentRow } from "./types";
+import type { DocumentRow, AnnotationRow, FSRSCardRow } from "./types";
 
 export interface ImportModalCallbacks {
   /** Current incremental mode. */
@@ -116,7 +116,36 @@ export class DocumentSelectionModal extends Modal {
           this.close();
           return null;
         }
-        return docs;
+
+        // Filter to only show docs that have annotations or FSRS cards
+        const annotations = queryAll<AnnotationRow>(
+          db,
+          "SELECT * FROM annotations",
+        );
+        const fsrsCards = queryAll<FSRSCardRow>(
+          db,
+          "SELECT * FROM fsrs_cards",
+        );
+
+        const docIdsWithData = new Set<string>();
+        for (const ann of annotations) {
+          docIdsWithData.add(ann.document_id);
+        }
+        for (const card of fsrsCards) {
+          docIdsWithData.add(card.document_id);
+        }
+
+        const filteredDocs = docs.filter((d) => docIdsWithData.has(d.id));
+
+        if (filteredDocs.length === 0) {
+          this.cb.onError(
+            "⚠️ No documents with annotations found in the database.",
+          );
+          this.close();
+          return null;
+        }
+
+        return filteredDocs;
       } finally {
         closeDatabase(db);
       }

@@ -18,6 +18,266 @@ import type {
 // ---------------------------------------------------------------------------
 
 /**
+ * Extract the best available translation from a ParsedAIResult,
+ * handling both V1 and V2 data formats.
+ */
+export function extractAITranslation(ai: ParsedAIResult): string | null {
+  // V1: flat translation field
+  if (ai.translation) return ai.translation;
+  // V1 legacy: deprecated translate field
+  if (ai.translate) return ai.translate;
+
+  // V2: word — use first meaning's translation
+  if (ai.output?.meanings && ai.output.meanings.length > 0) {
+    return ai.output.meanings[0].translation;
+  }
+  // V2: phrase or sentence — shared translation field
+  if (ai.output?.translation) return ai.output.translation;
+
+  return null;
+}
+
+/**
+ * Infer granularity: "word", "phrase", or "sentence".
+ * V2 has explicit `ai.input.type`; V1 uses a heuristic matching the upstream
+ * `inferGranularity()` in annotation-helpers.ts.
+ */
+function inferGranularity(ai: ParsedAIResult, text: string): string {
+  if (ai.input?.type) return ai.input.type;
+  const t = text.trim();
+  if (t.includes("\n") || t.split(" ").length > 30) return "sentence";
+  if (t.split(/[.!?;]+/).filter(Boolean).length > 1) return "sentence";
+  if (t.split(" ").length > 2) return "phrase";
+  return "word";
+}
+
+// ── V1 / V2 detail rendering (matches upstream Siltflow card layout) ──────────
+
+interface DetailLines {
+  core: string[];    // always shown (definitions block in V1; translation + CEFR/lemma + meanings in V2 word)
+  details: string[]; // collapsible / secondary (examples, collocations, alternatives, synonyms)
+}
+
+/**
+ * Build detail blocks matching the upstream Siltflow card layout.
+ * V1: meta tags + definitions (core), examples + collocations + alternatives (details)
+ * V2: type-specific sub-views (Word / Phrase / Sentence)
+ */
+export function buildAIDetailBlocks(ai: ParsedAIResult, text: string): DetailLines {
+  // ── V1 rendering ──
+  if (!ai.input?.type) return buildV1Blocks(ai, text);
+
+  // ── V2 rendering ──
+  return buildV2Blocks(ai);
+}
+
+// ==========================================================================
+// V1 block builder — matches AIAnnotationResultV1 layout
+// ==========================================================================
+
+function buildV1Blocks(ai: ParsedAIResult, text: string): DetailLines {
+  const core: string[] = [];
+  const details: string[] = [];
+
+  const granularity = inferGranularity(ai, text);
+  const isWord = granularity === "word" || granularity === "phrase";
+  const difficulty = ai.metadata?.difficulty;
+  const register = ai.metadata?.register;
+  const ipa = ai.pronunciation?.ipa;
+
+  // ── Translation (core) ──
+  const translation = ai.translation || ai.translate;
+  if (translation) {
+    core.push(`**Translation**  \n${translation}`);
+  }
+
+  // ── Meta tags row (core) — difficulty, IPA, register ──
+  const tags: string[] = [];
+  if (difficulty) tags.push(`\`${difficulty}\``);
+  if (ipa && isWord) tags.push(`\`/${ipa.startsWith("/") ? ipa.slice(1) : ipa}\``);
+  if (register) tags.push(`\`${register}\``);
+  if (tags.length > 0) {
+    core.push(tags.join(" "));
+  }
+
+  // ── Definitions block (core) ──
+  const defs = (ai.definitions || []).filter((d) => d.definition || d.gloss);
+  if (defs.length > 0) {
+    core.push("");
+    core.push("**Definitions**");
+    for (const d of defs.slice(0, 5)) {
+      const posTag = d.pos ? `\`${d.pos}\` ` : "";
+      const gloss = d.gloss ? ` ${d.gloss}` : "";
+      core.push(`- ${posTag}${d.definition}${gloss}`);
+    }
+  }
+
+  // ── Examples (details) ──
+  const examples = ai.examples || [];
+  if (examples.length > 0) {
+    details.push("**Examples**");
+    for (const ex of examples.slice(0, 5)) {
+      details.push(`- ${ex.sentence}`);
+      if (ex.translation) details.push(`  ${ex.translation}`);
+    }
+  }
+
+  // ── Collocations (details) ──
+  const colls = ai.collocations || [];
+  if (colls.length > 0) {
+    details.push("");
+    details.push("**Collocations**");
+    for (const c of colls) {
+      details.push(`- **${c.phrase}** ${c.translation}`);
+    }
+  }
+
+  // ── Alternatives (details) ──
+  const alts = ai.alternatives || [];
+  if (alts.length > 0) {
+    details.push("");
+    details.push("**Alternatives**");
+    for (const a of alts) {
+      const reg = a.register ? ` \`${a.register}\`` : "";
+      details.push(`- **${a.expression}**${reg}`);
+    }
+  }
+
+  // ── V1 legacy deprecated: words ──
+  if (ai.words && ai.words.length > 0) {
+    details.push("");
+    details.push("**Words**");
+    for (const w of ai.words) {
+      const posTag = w.pos ? `\`${w.pos}\` ` : "";
+      details.push(`- ${posTag}${w.meaning}`);
+    }
+  }
+
+  return { core, details };
+}
+
+// ==========================================================================
+// V2 block builders — match AIAnnotationResultV2 sub-views
+// ==========================================================================
+
+function buildV2Blocks(ai: ParsedAIResult): DetailLines {
+  const output = ai.output;
+  if (!output) return { core: [], details: [] };
+
+  // Word output — has meanings array (distinct from PhraseOutputV2)
+  if (output.meanings) {
+    return buildV2WordBlocks(ai, output);
+  }
+  // Phrase output: translation + examples (no meanings)
+  if (output.translation && output.examples) {
+    return buildV2PhraseBlocks(output);
+  }
+  // Sentence output: translation only (no examples, no meanings)
+  if (output.translation) {
+    return buildV2SentenceBlocks(output);
+  }
+
+  return { core: [], details: [] };
+}
+
+function buildV2WordBlocks(
+  ai: ParsedAIResult,
+  output: NonNullable<ParsedAIResult["output"]>,
+): DetailLines {
+  const core: string[] = [];
+  const details: string[] = [];
+
+  // ── CEFR & Lemma (core) ──
+  const tags: string[] = [];
+  if (output.cefr) tags.push(`\`${output.cefr}\``);
+  if (ai.input?.lemma) tags.push(`\`${ai.input.lemma}\``);
+  if (tags.length > 0) {
+    core.push(`**CEFR & Lemma**  \n${tags.join(" ")}`);
+  }
+
+  // ── Meanings (core) — ordered by frequency ──
+  if (output.meanings && output.meanings.length > 0) {
+    core.push("");
+    core.push("**Meanings**");
+    for (const m of output.meanings) {
+      core.push(`- \`${m.pos}\` ${m.translation}`);
+    }
+  }
+
+  // ── Definitions (details) ──
+  if (output.definitions && output.definitions.length > 0) {
+    details.push("**Definitions**");
+    for (const d of output.definitions) {
+      details.push(`- \`${d.pos}\` ${d.definition.source}`);
+      details.push(`  ${d.definition.target}`);
+    }
+  }
+
+  // ── Examples (details) ──
+  if (output.examples && output.examples.length > 0) {
+    details.push("");
+    details.push("**Examples**");
+    for (const ex of output.examples) {
+      details.push(`- ${ex.sentence}`);
+      if (ex.translation) details.push(`  ${ex.translation}`);
+    }
+  }
+
+  // ── Collocations (details) ──
+  if (output.collocations && output.collocations.length > 0) {
+    details.push("");
+    details.push("**Collocations**");
+    for (const c of output.collocations) {
+      details.push(`- **${c.phrase}** ${c.translation}`);
+    }
+  }
+
+  // ── Synonyms (details) ──
+  if (output.synonyms && output.synonyms.length > 0) {
+    details.push("");
+    details.push(`**Synonyms**  \n${output.synonyms.join(", ")}`);
+  }
+
+  return { core, details };
+}
+
+function buildV2PhraseBlocks(
+  output: NonNullable<ParsedAIResult["output"]>,
+): DetailLines {
+  const core: string[] = [];
+  const details: string[] = [];
+
+  // ── Translation (core) ──
+  if (output.translation) {
+    core.push(`**Translation**  \n${output.translation}`);
+  }
+
+  // ── Examples (details) ──
+  if (output.examples && output.examples.length > 0) {
+    details.push("**Examples**");
+    for (const ex of output.examples) {
+      details.push(`- ${ex.sentence}`);
+      if (ex.translation) details.push(`  ${ex.translation}`);
+    }
+  }
+
+  return { core, details };
+}
+
+function buildV2SentenceBlocks(
+  output: NonNullable<ParsedAIResult["output"]>,
+): DetailLines {
+  const core: string[] = [];
+
+  // ── Translation (core, only section) ──
+  if (output.translation) {
+    core.push(`**Translation**  \n${output.translation}`);
+  }
+
+  return { core, details: [] };
+}
+
+/**
  * Build a complete Markdown note for one Siltflow document.
  */
 export function buildMarkdownNote(
@@ -105,7 +365,7 @@ function buildFrontmatter(data: DocumentImportData): string {
 
   fm["tags"] = ["siltflow"];
 
-  return "---\n" + toYAML(fm) + "---\n";
+  return "---\n" + toYAML(fm) + "\n---\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -132,10 +392,12 @@ function buildAnnotationCallout(
   options: FormatterOptions,
 ): string {
   const fold = ann.type === "highlight" ? "+" : "-";
-  const pageInfo = ann.page_number ? ` 第 ${ann.page_number} 页` : "";
+  const titleText = ann.text
+    ? ann.text.replace(/\n/g, " ").slice(0, 60)
+    : ann.type;
   const parts: string[] = [];
 
-  parts.push(`> [!${ann.type}]${fold}${pageInfo}`);
+  parts.push(`> [!${ann.type}]${fold} ${titleText}`);
 
   // Embedded metadata for incremental import
   const metaParts: string[] = [`siltflow-annotation: ${ann.id}`];
@@ -144,20 +406,33 @@ function buildAnnotationCallout(
   }
   parts.push(`> <!-- ${metaParts.join(", ")} -->`);
 
+  if (ann.page_number) {
+    parts.push(`> **Page**: ${ann.page_number}`);
+  }
+
   if (ann.text) {
     parts.push("> **原文**: " + ann.text.replace(/\n/g, "\n> "));
   }
 
   if (options.includeAIResults && ai) {
-    if (ai.translation) {
-      parts.push(">");
-      parts.push("> **翻译**: " + ai.translation);
+    const { core, details } = buildAIDetailBlocks(ai, ann.text ?? "");
+    // Core content (translation, meta tags, definitions/meanings)
+    for (const line of core) {
+      if (line === "") {
+        parts.push(">");
+      } else {
+        parts.push("> " + line.replace(/\n/g, "\n> "));
+      }
     }
-    if (ai.explanation) {
+    // Details (examples, collocations, alternatives, synonyms)
+    if (details.length > 0) {
       parts.push(">");
-      parts.push("> **解释**:");
-      for (const line of ai.explanation.split("\n")) {
-        parts.push(`> ${line}`);
+      for (const line of details) {
+        if (line === "") {
+          parts.push(">");
+        } else {
+          parts.push("> " + line.replace(/\n/g, "\n> "));
+        }
       }
     }
   }
@@ -212,8 +487,13 @@ function toYAML(obj: Record<string, unknown>): string {
 
 function formatScalar(value: unknown): string {
   if (typeof value === "string") {
-    // YAML quoting: quote if contains special chars or looks ambiguous
-    if (/[:{}[\]&*#?|!%@`]/.test(value) || value === "" || /^\d/.test(value)) {
+    // YAML quoting: quote if contains special chars, starts with quote, or empty
+    if (
+      /[:{}[\]&*#?|!%@`]/.test(value) ||
+      value === "" ||
+      /^\d/.test(value) ||
+      /^['"]/.test(value)
+    ) {
       return `"${value.replace(/"/g, '\\"')}"`;
     }
     return value;

@@ -15,7 +15,7 @@ import {
   queryAll,
   closeDatabase,
 } from "./db";
-import { buildMarkdownNote } from "./formatter";
+import { buildMarkdownNote, buildAIDetailBlocks } from "./formatter";
 import { generateBaseFileContent, updateBaseFileContent } from "./base-generator";
 import type {
   DocumentRow,
@@ -357,9 +357,11 @@ function buildAnnotationAppendix(
   for (const ann of annotations) {
     const ai = aiResults.get(ann.id);
     const fold = ann.type === "highlight" ? "+" : "-";
-    const pageInfo = ann.page_number ? ` 第 ${ann.page_number} 页` : "";
+    const titleText = ann.text
+      ? ann.text.replace(/\n/g, " ").slice(0, 60)
+      : ann.type;
 
-    parts.push(`> [!${ann.type}]${fold}${pageInfo}`);
+    parts.push(`> [!${ann.type}]${fold} ${titleText}`);
 
     const metaParts: string[] = [`siltflow-annotation: ${ann.id}`];
     if (aiVersion > 0) {
@@ -367,20 +369,33 @@ function buildAnnotationAppendix(
     }
     parts.push(`> <!-- ${metaParts.join(", ")} -->`);
 
+    if (ann.page_number) {
+      parts.push(`> **页码**: ${ann.page_number}`);
+    }
+
     if (ann.text) {
       parts.push("> **原文**: " + ann.text.replace(/\n/g, "\n> "));
     }
 
     if (settings.includeAIResults && ai) {
-      if (ai.translation) {
-        parts.push(">");
-        parts.push("> **翻译**: " + ai.translation);
+      const { core, details } = buildAIDetailBlocks(ai, ann.text ?? "");
+      // Core content (translation, meta tags, definitions/meanings)
+      for (const line of core) {
+        if (line === "") {
+          parts.push(">");
+        } else {
+          parts.push("> " + line.replace(/\n/g, "\n> "));
+        }
       }
-      if (ai.explanation) {
+      // Details (examples, collocations, alternatives, synonyms)
+      if (details.length > 0) {
         parts.push(">");
-        parts.push("> **解释**:");
-        for (const line of ai.explanation.split("\n")) {
-          parts.push(`> ${line}`);
+        for (const line of details) {
+          if (line === "") {
+            parts.push(">");
+          } else {
+            parts.push("> " + line.replace(/\n/g, "\n> "));
+          }
         }
       }
     }
