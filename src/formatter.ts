@@ -18,6 +18,17 @@ import type {
 // ---------------------------------------------------------------------------
 
 /**
+ * Try to infer target language from AI data (V1 target_lang or V2 meanings translations).
+ */
+function detectTargetLang(ai: ParsedAIResult): string | null {
+  if (ai.target_lang) return ai.target_lang;
+  // V2: no explicit target_lang; infer from context (most commonly zh-CN for Siltflow)
+  if (ai.output?.meanings?.length) return "zh-CN";
+  if (ai.output?.translation) return "zh-CN";
+  return null;
+}
+
+/**
  * Extract the best available translation from a ParsedAIResult,
  * handling both V1 and V2 data formats.
  */
@@ -410,8 +421,20 @@ function buildAnnotationCallout(
     parts.push("> **原文**: " + ann.text.replace(/\n/g, "\n> "));
   }
 
+  // ── AI results (matches upstream Siltflow card layout) ──
   if (options.includeAIResults && ai) {
     const { core, details } = buildAIDetailBlocks(ai, ann.text ?? "");
+
+    // Header + source/target language
+    const langParts: string[] = [];
+    if (ai.input?.source_lang) langParts.push(`Source: \`${ai.input.source_lang}\``);
+    const targetLang = ai.target_lang || detectTargetLang(ai);
+    if (targetLang) langParts.push(`Target: \`${targetLang}\``);
+    if (langParts.length > 0) {
+      parts.push(">");
+      parts.push("> " + langParts.join(" | "));
+    }
+
     // Core content (translation, meta tags, definitions/meanings)
     for (const line of core) {
       if (line === "") {
@@ -422,7 +445,6 @@ function buildAnnotationCallout(
     }
     // Details (examples, collocations, alternatives, synonyms)
     if (details.length > 0) {
-      parts.push(">");
       for (const line of details) {
         if (line === "") {
           parts.push(">");
