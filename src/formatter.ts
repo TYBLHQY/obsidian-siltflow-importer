@@ -413,45 +413,41 @@ function buildAnnotationCallout(
   }
   parts.push(`> <!-- ${metaParts.join(", ")} -->`);
 
-  if (ann.page_number) {
-    parts.push(`> **Page**: ${ann.page_number}`);
-  }
+  const bodyLines: string[] = [];
 
+  // ── AI header: source/target language ──
+  const langParts: string[] = [];
+  if (ai?.input?.source_lang) langParts.push(`Source: \`${ai.input.source_lang}\``);
+  const targetLang = ai?.target_lang || (ai ? detectTargetLang(ai) : null);
+  if (targetLang) langParts.push(`Target: \`${targetLang}\``);
+
+  if (ann.page_number) {
+    bodyLines.push(`**Page**: ${ann.page_number}`);
+  }
   if (ann.text) {
-    parts.push("> **原文**: " + ann.text.replace(/\n/g, "\n> "));
+    bodyLines.push("**原文**: " + ann.text.replace(/\n/g, "\n> "));
   }
 
   // ── AI results (matches upstream Siltflow card layout) ──
   if (options.includeAIResults && ai) {
+    if (langParts.length > 0) {
+      bodyLines.push("");
+      bodyLines.push(langParts.join(" | "));
+    }
+
     const { core, details } = buildAIDetailBlocks(ai, ann.text ?? "");
 
-    // Header + source/target language
-    const langParts: string[] = [];
-    if (ai.input?.source_lang) langParts.push(`Source: \`${ai.input.source_lang}\``);
-    const targetLang = ai.target_lang || detectTargetLang(ai);
-    if (targetLang) langParts.push(`Target: \`${targetLang}\``);
-    if (langParts.length > 0) {
-      parts.push(">");
-      parts.push("> " + langParts.join(" | "));
-    }
-
     // Core content (translation, meta tags, definitions/meanings)
-    for (const line of core) {
-      if (line === "") {
-        parts.push(">");
-      } else {
-        parts.push("> " + line.replace(/\n/g, "\n> "));
-      }
-    }
+    bodyLines.push(...core);
     // Details (examples, collocations, alternatives, synonyms)
-    if (details.length > 0) {
-      for (const line of details) {
-        if (line === "") {
-          parts.push(">");
-        } else {
-          parts.push("> " + line.replace(/\n/g, "\n> "));
-        }
-      }
+    bodyLines.push(...details);
+  }
+
+  for (const line of bodyLines) {
+    if (line === "") {
+      parts.push(">");
+    } else {
+      parts.push("> " + line.replace(/\n/g, "\n> "));
     }
   }
 
