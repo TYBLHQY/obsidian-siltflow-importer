@@ -20,7 +20,7 @@ import type {
 /**
  * Try to infer target language from AI data (V1 target_lang or V2 meanings translations).
  */
-function detectTargetLang(ai: ParsedAIResult): string | null {
+export function detectTargetLang(ai: ParsedAIResult): string | null {
   if (ai.target_lang) return ai.target_lang;
   // V2: no explicit target_lang; infer from context (most commonly zh-CN for Siltflow)
   if (ai.output?.meanings?.length) return "zh-CN";

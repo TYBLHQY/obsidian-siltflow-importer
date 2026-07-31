@@ -15,7 +15,7 @@ import {
   queryAll,
   closeDatabase,
 } from "./db";
-import { buildMarkdownNote, buildAIDetailBlocks } from "./formatter";
+import { buildMarkdownNote, buildAIDetailBlocks, detectTargetLang } from "./formatter";
 import { generateBaseFileContent, updateBaseFileContent } from "./base-generator";
 import type {
   DocumentRow,
@@ -369,8 +369,14 @@ function buildAnnotationAppendix(
     }
     parts.push(`> <!-- ${metaParts.join(", ")} -->`);
 
+    // ── AI header: source/target language ──
+    const langParts: string[] = [];
+    if (ai?.input?.source_lang) langParts.push(`Source: \`${ai.input.source_lang}\``);
+    const targetLang = ai?.target_lang || (ai ? detectTargetLang(ai) : null);
+    if (targetLang) langParts.push(`Target: \`${targetLang}\``);
+
     if (ann.page_number) {
-      parts.push(`> **页码**: ${ann.page_number}`);
+      parts.push(`> **Page**: ${ann.page_number}`);
     }
 
     if (ann.text) {
@@ -378,6 +384,11 @@ function buildAnnotationAppendix(
     }
 
     if (settings.includeAIResults && ai) {
+      if (langParts.length > 0) {
+        parts.push(">");
+        parts.push("> " + langParts.join(" | "));
+      }
+
       const { core, details } = buildAIDetailBlocks(ai, ann.text ?? "");
       // Core content (translation, meta tags, definitions/meanings)
       for (const line of core) {
