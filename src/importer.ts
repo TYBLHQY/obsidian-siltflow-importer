@@ -359,9 +359,9 @@ function buildAnnotationAppendix(
     const fold =
       settings.calloutFold === "none"
         ? ""
-        : settings.calloutFold === "collapsed"
-          ? "+"
-          : "-";
+        : settings.calloutFold === "expanded"
+          ? "-"
+          : "+";
     const titleText = ann.text
       ? ann.text.replace(/\n/g, " ").slice(0, 60)
       : ann.type;
