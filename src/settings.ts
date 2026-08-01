@@ -3,7 +3,7 @@
  */
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type SiltflowImporterPlugin from "./main";
-import { syncCalloutFolds } from "./importer";
+import { syncCalloutFolds, getDatabaseVersion, INDEX_FORMAT_VERSION } from "./importer";
 
 // ---------------------------------------------------------------------------
 // Settings interface
@@ -176,5 +176,23 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           }),
       );
+
+    // ── Version info ─────────────────────────────────────────────
+
+    containerEl.createEl("h3", { text: "版本信息" });
+
+    new Setting(containerEl)
+      .setName("插件数据格式版本")
+      .setDesc(String(INDEX_FORMAT_VERSION));
+
+    const dbVersion = new Setting(containerEl)
+      .setName("数据库版本")
+      .setDesc("读取中…");
+
+    // Read the source DB version asynchronously.
+    void getDatabaseVersion(this.plugin.settings.siltflowDbPath).then((v) => {
+      if (v === null) return;
+      dbVersion.descEl.setText(String(v));
+    });
   }
 }

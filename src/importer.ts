@@ -89,6 +89,29 @@ export function validateImportConfig(
 }
 
 /**
+ * Read the Siltflow source database's schema version (`PRAGMA user_version`).
+ * Returns null when the file can't be opened or the pragma isn't available.
+ * Used to display the source DB version in the settings tab.
+ */
+export async function getDatabaseVersion(
+  dbPath: string,
+): Promise<number | null> {
+  if (!dbPath) return null;
+  try {
+    const db = await openDatabase(dbPath);
+    try {
+      const rows = queryAll<Record<string, unknown>>(db, "PRAGMA user_version");
+      const v = rows[0]?.user_version;
+      return typeof v === "number" ? v : null;
+    } finally {
+      closeDatabase(db);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Run the full import pipeline.
  *
  * Throws if the config is invalid: dbPath must point to an existing file,
@@ -396,7 +419,9 @@ function includeAnnotation(
 const INDEX_FILENAME = "_siltflow_import.json";
 const DOCUMENTS_FILENAME = "documents.jsonl";
 const META_FOLDER = "_meta";
-const INDEX_FORMAT_VERSION = 6;
+
+/** Data-format version of the import index. Bump when the index shape changes. */
+export const INDEX_FORMAT_VERSION = 6;
 
 function freshIndex(): ImportIndex {
   return {
