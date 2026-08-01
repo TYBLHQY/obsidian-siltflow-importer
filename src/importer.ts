@@ -11,6 +11,7 @@
  *   6. Update import index
  */
 import type { App, Vault } from "obsidian";
+import { TFile } from "obsidian";
 import {
   openDatabase,
   queryAll,
@@ -351,6 +352,53 @@ async function saveImportIndex(
     await vault.create(indexPath, content);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Fold-state sync
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite every imported note's annotation callout fold markers to match the
+ * current `calloutFold` setting. Operates on the notes tracked by the import
+ * index, so it only touches notes this plugin generated.
+ *
+ * Returns the number of notes rewritten.
+ */
+export async function syncCalloutFolds(
+  vault: Vault,
+  outputFolder: string,
+  calloutFold: "expanded" | "collapsed" | "none",
+): Promise<number> {
+  const index = await loadImportIndex(vault, outputFolder);
+  const target = FOLD_MARKER[calloutFold];
+  let rewritten = 0;
+
+  for (const entry of Object.values(index.documents)) {
+    const file = vault.getAbstractFileByPath(entry.file);
+    if (!(file instanceof TFile)) continue;
+
+    const content = await vault.read(file as import("obsidian").TFile);
+    // Replace the fold marker on every annotation card line:
+    // `> [!siltflow]+ word`, `> [!siltflow]- word`, or `> [!siltflow] word`.
+    // Anchored to the callout prefix so other `[!siltflow]` text is untouched.
+    const updated = content.replace(
+      /(^> \[!siltflow\])[-+]?\s/gm,
+      (match, prefix: string) => `${prefix}${target} `,
+    );
+    if (updated !== content) {
+      await vault.modify(file as import("obsidian").TFile, updated);
+      rewritten++;
+    }
+  }
+  return rewritten;
+}
+
+/** Map calloutFold setting → the fold marker on `> [!siltflow]`. */
+const FOLD_MARKER: Record<"expanded" | "collapsed" | "none", string> = {
+  expanded: "+",
+  collapsed: "-",
+  none: "",
+};
 
 // ---------------------------------------------------------------------------
 // Path utilities

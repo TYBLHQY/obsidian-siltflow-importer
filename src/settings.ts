@@ -1,8 +1,9 @@
 /**
  * Plugin settings with setting tab UI.
  */
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type SiltflowImporterPlugin from "./main";
+import { syncCalloutFolds } from "./importer";
 
 // ---------------------------------------------------------------------------
 // Settings interface
@@ -31,7 +32,7 @@ export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
   includeAIResults: true,
   includeFSRSStats: true,
   incrementalMode: "append",
-  calloutFold: "expanded",
+  calloutFold: "collapsed",
   includeDocumentsWithoutAnnotations: true,
 };
 
@@ -135,7 +136,7 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("标注卡片折叠状态")
-      .setDesc("控制每个标注卡片 callout 的默认折叠状态。")
+      .setDesc("默认折叠：卡片收起。默认展开：卡片展开。不可折叠：无折叠按钮。")
       .addDropdown((dropdown) =>
         dropdown
           .addOption("expanded", "默认展开")
@@ -148,6 +149,19 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
               | "collapsed"
               | "none";
             await this.plugin.saveSettings();
+          }),
+      )
+      .addButton((button) =>
+        button
+          .setButtonText("同步已导入")
+          .setTooltip("把已导入笔记的卡片折叠状态改写为当前设置")
+          .onClick(async () => {
+            const n = await syncCalloutFolds(
+              this.app.vault,
+              this.plugin.settings.outputFolder,
+              this.plugin.settings.calloutFold,
+            );
+            new Notice(`✅ 已同步 ${n} 篇笔记的折叠状态`);
           }),
       );
 
