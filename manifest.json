@@ -1,7 +1,7 @@
 {
 	"id": "siltflow-importer",
 	"name": "Siltflow Importer",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"minAppVersion": "1.6.6",
 	"description": "Import Siltflow SQLite database into your vault as Markdown notes with bilingual AI annotation cards.",
 	"author": "MYQ",
