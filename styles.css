@@ -212,7 +212,7 @@
    spacing, colors) uses Obsidian's default callout styling.
    ──────────────────────────────────────────────────────────────── */
 
-.markdown-rendered > .callout[data-callout="siltflow"] {
+.callout[data-callout="siltflow"] {
   --siltflow-card-accent: var(--interactive-accent);
   --siltflow-card-border: color-mix(
     in srgb,
@@ -231,9 +231,24 @@
   border-left: 3px solid var(--siltflow-card-accent);
 }
 
+/* POS / CEFR / lemma / difficulty tags inside cards (`\`B2\``, `\`NOUN\``, …)
+   are styled as pills. Scoped to the card so other inline code is untouched. */
+.callout[data-callout="siltflow"] .callout-content code {
+  display: inline-block;
+  vertical-align: middle;
+  padding: 0.05em 0.5em;
+  margin: 0 0.12em;
+  font-size: 0.85em;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--siltflow-card-accent) 14%, var(--background-secondary));
+  color: var(--siltflow-card-accent);
+  border: 1px solid color-mix(in srgb, var(--siltflow-card-accent) 35%, var(--background-modifier-border));
+  border-radius: var(--tag-radius, 999px);
+}
+
 /* ── Summary callout ───────────────────────────────────────────── */
 
-.markdown-rendered > .callout[data-callout="summary"] {
+.callout[data-callout="summary"] {
   background: color-mix(in srgb, var(--color-yellow) 8%, var(--background-secondary));
   border: 1px solid color-mix(in srgb, var(--color-yellow) 40%, var(--background-modifier-border));
   border-left: 3px solid var(--color-yellow);
