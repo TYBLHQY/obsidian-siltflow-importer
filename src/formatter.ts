@@ -55,6 +55,23 @@ function inferGranularity(ai: ParsedAIResult, text: string): string {
   return "word";
 }
 
+/** V2 granularity of an annotation, or null when it has no V2 `input.type`. */
+export type AnnotationGranularity = "word" | "phrase" | "sentence";
+
+/**
+ * Return the explicit V2 granularity (`ai.input.type`) of an annotation, or
+ * null when there is none (no AI result, or V1 data). Only V2-typed
+ * annotations are gated by the per-type include settings; everything else is
+ * always included.
+ */
+export function v2Granularity(
+  ai: ParsedAIResult | undefined,
+): AnnotationGranularity | null {
+  const t = ai?.input?.type;
+  if (t === "word" || t === "phrase" || t === "sentence") return t;
+  return null;
+}
+
 // ── V1 / V2 detail rendering (matches upstream Siltflow card layout) ──────────
 
 interface DetailLines {

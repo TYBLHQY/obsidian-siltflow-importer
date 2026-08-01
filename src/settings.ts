@@ -22,6 +22,12 @@ export interface SiltflowImporterSettings {
   incrementalMode: "append" | "update" | "overwrite";
   /** Fold state of each annotation callout in the note. */
   calloutFold: "expanded" | "collapsed" | "none";
+  /** Per-granularity include toggles for V2 annotations (word/phrase/sentence). */
+  includeTypes: {
+    word: boolean;
+    phrase: boolean;
+    sentence: boolean;
+  };
   /** Import documents that have zero annotations. */
   includeDocumentsWithoutAnnotations: boolean;
 }
@@ -33,6 +39,11 @@ export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
   includeFSRSStats: true,
   incrementalMode: "append",
   calloutFold: "collapsed",
+  includeTypes: {
+    word: true,
+    phrase: true,
+    sentence: true,
+  },
   includeDocumentsWithoutAnnotations: true,
 };
 
@@ -109,6 +120,33 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           }),
       );
+
+    // ── V2 granularity filters ───────────────────────────────────
+
+    containerEl.createEl("h4", { text: "V2 标注类型" });
+
+    const typeToggles: Array<{
+      key: "word" | "phrase" | "sentence";
+      label: string;
+      desc: string;
+    }> = [
+      { key: "word", label: "包含单词", desc: "词条类标注（如 virtue）。" },
+      { key: "phrase", label: "包含短语", desc: "短语类标注（如 to be sure）。" },
+      { key: "sentence", label: "包含句子", desc: "句子类标注。" },
+    ];
+    for (const t of typeToggles) {
+      new Setting(containerEl)
+        .setName(t.label)
+        .setDesc(t.desc)
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.includeTypes[t.key])
+            .onChange(async (value) => {
+              this.plugin.settings.includeTypes[t.key] = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+    }
 
     // ── Import strategy section ─────────────────────────────────
 

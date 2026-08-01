@@ -20,6 +20,7 @@ import {
 import {
   buildMarkdownNote,
   buildCardBlocks,
+  v2Granularity,
   type FormatterOptions,
 } from "./formatter";
 import type {
@@ -138,9 +139,17 @@ export async function importDatabase(
       const safeDoc = safeDocMap.get(doc.id) || sanitizeFilename(doc.title);
       const notePath = `${settings.outputFolder}/${safeDoc}.md`;
 
-      const docAnnotations = (annotationsByDoc.get(doc.id) || []).sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-      );
+      const docAnnotations = (annotationsByDoc.get(doc.id) || [])
+        .sort(
+          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+        )
+        .filter((a) =>
+          includeAnnotationByType(
+            a,
+            aiResultMap.get(doc.id)?.get(a.id),
+            settings.includeTypes,
+          ),
+        );
 
       const aiVersions = aiVersionMap.get(doc.id) || new Map<string, number>();
       const data: DocumentRenderData = {
@@ -285,6 +294,21 @@ function parseCard(card: FSRSCardRow | undefined): ParsedFSRSCard | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Whether an annotation should be imported given the per-type toggles.
+ * Only V2-typed annotations (with an explicit `ai.input.type`) are gated;
+ * annotations without a V2 type (no AI result, or V1 data) are always kept.
+ */
+function includeAnnotationByType(
+  ann: AnnotationRow,
+  ai: ParsedAIResult | undefined,
+  includeTypes: { word: boolean; phrase: boolean; sentence: boolean },
+): boolean {
+  const type = v2Granularity(ai);
+  if (!type) return true;
+  return includeTypes[type];
 }
 
 /** Extract the set of siltflow-annotation IDs embedded in a note's callouts. */
