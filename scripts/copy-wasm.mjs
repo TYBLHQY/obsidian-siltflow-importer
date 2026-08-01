@@ -1,9 +1,10 @@
 /**
- * Post-build script: copy sql.js WASM file to the plugin output directory.
+ * Post-build script: copy sql.js WASM file to the source tree so esbuild
+ * can embed it into the bundle (loader: { ".wasm": "base64" }).
  *
- * Obsidian plugins ship as a directory containing main.js, manifest.json,
- * and styles.css. The sql.js WASM file must also live in that directory
- * so the plugin can load it at runtime via readFileSync.
+ * The plugin stays a single self-contained main.js — the Obsidian community
+ * installer only ships main.js / manifest.json / styles.css, so the wasm must
+ * be inlined rather than shipped as a separate file.
  *
  * Usage: node scripts/copy-wasm.mjs
  */
@@ -22,7 +23,7 @@ const wasmSource = join(
   "sql-wasm.wasm",
 );
 
-const wasmDest = join(rootDir, "sql-wasm.wasm");
+const wasmDest = join(rootDir, "src", "sql-wasm.wasm");
 
 if (!existsSync(wasmSource)) {
   console.error("❌ sql-wasm.wasm not found in node_modules/sql.js/dist/");
@@ -32,12 +33,3 @@ if (!existsSync(wasmSource)) {
 copyFileSync(wasmSource, wasmDest);
 const wasmSizeKb = (statSync(wasmSource).size / 1024).toFixed(0);
 console.log(`✅ Copied sql-wasm.wasm (${wasmSizeKb} KB) -> ${wasmDest}`);
-
-// Also copy the JS loader that sql.js's require() will resolve
-const jsSource = join(rootDir, "node_modules", "sql.js", "dist", "sql-wasm.js");
-const jsDest = join(rootDir, "sql-wasm.js");
-if (existsSync(jsSource)) {
-  copyFileSync(jsSource, jsDest);
-  const jsSizeKb = (statSync(jsSource).size / 1024).toFixed(0);
-  console.log(`✅ Copied sql-wasm.js (${jsSizeKb} KB) -> ${jsDest}`);
-}

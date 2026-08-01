@@ -24,3 +24,9 @@ declare module "sql.js" {
   export default initSqlJs;
   export type { Database, SqlJsStatic, Statement };
 }
+
+/** sql-wasm.wasm bundled as a base64 string by esbuild's `.wasm` loader. */
+declare module "*.wasm" {
+  const content: string;
+  export default content;
+}

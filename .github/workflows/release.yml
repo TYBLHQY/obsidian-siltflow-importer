@@ -17,7 +17,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -27,14 +27,10 @@ jobs:
         id: build
         run: npm run build
 
-      # sql.js needs its WASM + loader in the plugin directory at runtime.
-      # The community downloader installs every asset from the release, so
-      # shipping them alongside main.js / manifest.json / styles.css works.
       - name: Package assets
         run: |
           mkdir -p release
           cp main.js manifest.json styles.css release/
-          cp sql-wasm.wasm sql-wasm.js release/
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -43,5 +39,3 @@ jobs:
             release/main.js
             release/manifest.json
             release/styles.css
-            release/sql-wasm.wasm
-            release/sql-wasm.js

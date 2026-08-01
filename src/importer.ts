@@ -80,7 +80,7 @@ export function validateImportConfig(
     /^[A-Za-z]:[\\/]/.test(folder) ||
     /\.\./.test(folder) ||
     /[<>:"|?*]/.test(folder) ||
-    /[\x00-\x1f\x7f]/.test(folder)
+    /[\0-\37\177]/.test(folder)
   ) {
     throw new Error(
       "⚠️ 输出目录无效：须为 vault 内相对路径（不允许绝对路径、.. 或非法字符）。",
@@ -257,18 +257,23 @@ export async function importDatabase(
         calloutFold: settings.calloutFold,
       };
 
-      let existingFile = existingEntry
-        ? vault.getAbstractFileByPath(existingEntry.file)
-        : null;
+      let existingFile =
+        existingEntry && existingEntry.file
+          ? vault.getAbstractFileByPath(existingEntry.file)
+          : null;
+      if (existingFile && !(existingFile instanceof TFile)) {
+        existingFile = null;
+      }
 
       // Handle doc rename / note-path change: drop the stale note + anns index.
       if (existingEntry && existingEntry.file !== notePath) {
         if (existingFile) {
-          await app.fileManager.trashFile(existingFile as TFile);
+          await app.fileManager.trashFile(existingFile);
           existingFile = null;
         }
         const oldAnns = vault.getAbstractFileByPath(existingEntry.annsFile);
-        if (oldAnns) await app.fileManager.trashFile(oldAnns as TFile);
+        if (oldAnns && oldAnns instanceof TFile)
+          await app.fileManager.trashFile(oldAnns);
         existingEntry = undefined;
       }
 
@@ -278,12 +283,12 @@ export async function importDatabase(
         // Full re-render. Clean up stale files, then write fresh.
         if (existingEntry && existingFile && existingEntry.file === notePath) {
           const oldAnns = vault.getAbstractFileByPath(existingEntry.annsFile);
-          if (oldAnns && oldAnns.path !== annsFilePath)
-            await app.fileManager.trashFile(oldAnns as TFile);
+          if (oldAnns instanceof TFile && oldAnns.path !== annsFilePath)
+            await app.fileManager.trashFile(oldAnns);
         }
         const content = buildMarkdownNote(data, options);
         if (existingFile) {
-          await vault.modify(existingFile as TFile, content);
+          await vault.modify(existingFile, content);
           result.updated++;
         } else {
           await vault.create(notePath, content);
@@ -305,7 +310,7 @@ export async function importDatabase(
 
         if (needsRender) {
           const content = buildMarkdownNote(data, options);
-          await vault.modify(existingFile as TFile, content);
+          await vault.modify(existingFile, content);
           result.updated++;
           written = true;
         } else {
@@ -340,9 +345,11 @@ export async function importDatabase(
       for (const [docId, entry] of documentsIndex) {
         if (importedIds.has(docId)) continue;
         const staleNote = vault.getAbstractFileByPath(entry.file);
-        if (staleNote) await app.fileManager.trashFile(staleNote as TFile);
+        if (staleNote instanceof TFile)
+          await app.fileManager.trashFile(staleNote);
         const staleAnns = vault.getAbstractFileByPath(entry.annsFile);
-        if (staleAnns) await app.fileManager.trashFile(staleAnns as TFile);
+        if (staleAnns instanceof TFile)
+          await app.fileManager.trashFile(staleAnns);
         documentsIndex.delete(docId);
       }
     }
@@ -474,20 +481,20 @@ async function loadImportIndex(
     `${outputFolder}/${META_FOLDER}/${INDEX_FILENAME}`,
   );
   const file = vault.getAbstractFileByPath(indexPath);
-  if (!file) {
-    return freshIndex();
-  }
-  try {
-    const content = await vault.read(file as import("obsidian").TFile);
-    const parsed = JSON.parse(content) as ImportIndex;
-    if (parsed.formatVersion !== INDEX_FORMAT_VERSION) {
-      // Old schema (documents nested in the main index) — start fresh.
+  if (file instanceof TFile) {
+    try {
+      const content = await vault.read(file);
+      const parsed = JSON.parse(content) as ImportIndex;
+      if (parsed.formatVersion !== INDEX_FORMAT_VERSION) {
+        // Old schema (documents nested in the main index) — start fresh.
+        return freshIndex();
+      }
+      return parsed;
+    } catch {
       return freshIndex();
     }
-    return parsed;
-  } catch {
-    return freshIndex();
   }
+  return freshIndex();
 }
 
 async function saveImportIndex(
@@ -500,8 +507,8 @@ async function saveImportIndex(
   );
   const content = JSON.stringify(index, null, 2);
   const file = vault.getAbstractFileByPath(indexPath);
-  if (file) {
-    await vault.modify(file as import("obsidian").TFile, content);
+  if (file instanceof TFile) {
+    await vault.modify(file, content);
   } else {
     await ensureFolderExists(vault, `${outputFolder}/${META_FOLDER}`);
     await vault.create(indexPath, content);
@@ -549,8 +556,8 @@ async function saveDocumentsIndex(
   );
   const content = lines.length > 0 ? lines.join("\n") + "\n" : "";
   const file = vault.getAbstractFileByPath(DOCUMENTS_PATH(outputFolder));
-  if (file) {
-    await vault.modify(file as TFile, content);
+  if (file instanceof TFile) {
+    await vault.modify(file, content);
   } else {
     await ensureFolderExists(vault, getFolderFromPath(DOCUMENTS_PATH(outputFolder)));
     await vault.create(DOCUMENTS_PATH(outputFolder), content);
@@ -599,8 +606,8 @@ async function saveAnnsIndex(
   );
   const content = lines.length > 0 ? lines.join("\n") + "\n" : "";
   const file = vault.getAbstractFileByPath(annsFilePath);
-  if (file) {
-    await vault.modify(file as TFile, content);
+  if (file instanceof TFile) {
+    await vault.modify(file, content);
   } else {
     await ensureFolderExists(vault, getFolderFromPath(annsFilePath));
     await vault.create(annsFilePath, content);
@@ -631,7 +638,7 @@ export async function syncCalloutFolds(
     const file = vault.getAbstractFileByPath(entry.file);
     if (!(file instanceof TFile)) continue;
 
-    const content = await vault.read(file as import("obsidian").TFile);
+    const content = await vault.read(file);
     // Replace the fold marker on every annotation card line:
     // `> [!siltflow]+ word`, `> [!siltflow]- word`, or `> [!siltflow] word`.
     // Anchored to the callout prefix so other `[!siltflow]` text is untouched.
@@ -640,7 +647,7 @@ export async function syncCalloutFolds(
       (match, prefix: string) => `${prefix}${target} `,
     );
     if (updated !== content) {
-      await vault.modify(file as import("obsidian").TFile, updated);
+      await vault.modify(file, updated);
       rewritten++;
     }
   }
@@ -690,7 +697,7 @@ function sanitizeFilename(name: string): string {
     .replace(/['"`]/g, "")
     .replace(/[/\\?%*:|<>]/g, "-")
     .replace(/\s+/g, " ") // collapse whitespace (incl. newlines) before stripping
-    .replace(/[\x00-\x1f\x7f]/g, "") // strip remaining control chars
+    .replace(/[\0-\37\177]/g, "") // strip remaining control chars
     .trim()
     .slice(0, 200); // Reasonable max length
 }

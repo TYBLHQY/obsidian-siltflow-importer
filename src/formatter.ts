@@ -27,7 +27,8 @@ export function extractAITranslation(ai: ParsedAIResult | undefined): string | n
   if (!ai) return null;
   // V1: flat translation field
   if (ai.translation) return ai.translation;
-  // V1 legacy: deprecated translate field
+  // V1 legacy: deprecated translate field (kept for old DBs)
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   if (ai.translate) return ai.translate;
 
   // V2: word — use first meaning's translation
@@ -167,7 +168,8 @@ function buildV1Blocks(ai: ParsedAIResult, text: string): DetailLines {
     }
   }
 
-  // ── V1 legacy deprecated: words ──
+  // ── V1 legacy deprecated: words (kept for old DBs) ──
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   if (ai.words && ai.words.length > 0) {
     details.push("");
     details.push("**Words**");

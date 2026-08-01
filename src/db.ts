@@ -5,67 +5,39 @@
  * renderer environment (unlike better-sqlite3 which requires native addons).
  *
  * WASM loading strategy:
- * The sql-wasm.wasm file (~645KB) is copied to the plugin directory by the
- * build script. At runtime we override sql.js's default locateFile to load
- * it from disk via Node's readFileSync. This avoids:
- *   - CDN dependency (plugin works offline)
- *   - fetch() which isn't available in Obsidian's file:// context
- *   - The ~1.2MB base64-encoded fallback that sql.js embeds
+ * The sql-wasm.wasm file is embedded into the bundle as a base64 string at
+ * build time (esbuild `loader: { '.wasm': 'base64' }`) and decoded at runtime
+ * into a Uint8Array for `initSqlJs({ wasmBinary })`. This keeps the plugin a
+ * single self-contained main.js — the Obsidian community installer only ships
+ * main.js / manifest.json / styles.css, so an external wasm file would never
+ * be present on community installs.
  */
 import initSqlJs, { type Database } from "sql.js";
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
+import wasmBase64 from "./sql-wasm.wasm";
+import { readFileSync } from "fs";
 
 // ---------------------------------------------------------------------------
 // WASM loading
 // ---------------------------------------------------------------------------
 
-let sqlPromise: ReturnType<typeof initSqlJs> | null = null;
+let sqlPromise: Awaited<ReturnType<typeof initSqlJs>> | null = null;
 
-/**
- * We need to locate the .wasm file relative to main.js at runtime.
- *
- * ObservablePlugin provides the plugin's directory path via `this.manifest.dir`
- * at runtime, but we can't access that in this module. Instead we try known
- * locations and the constructor accepts an optional config.
- */
-
-/** Resolved path to sql-wasm.wasm, set by the plugin on init. */
-let wasmPath: string | null = null;
-
-/**
- * Set the WASM file path before first database open.
- * Called from main.ts with the plugin's directory path.
- */
-export function setWasmPath(pluginDir: string): void {
-  const candidate = join(pluginDir, "sql-wasm.wasm");
-  if (existsSync(candidate)) {
-    wasmPath = candidate;
-  } else {
-    console.warn(
-      "[Siltflow Importer] sql-wasm.wasm not found at",
-      candidate,
-    );
+/** Decode the build-time-embedded base64 wasm into a Uint8Array. */
+function decodeWasm(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
   }
+  return bytes;
 }
 
-// When wasmPath is set, override the initialization to pass binary directly.
-// We do this by letting the user call init with the binary data.
-async function getSqlWithBinary(): Promise<
-  Awaited<ReturnType<typeof initSqlJs>>
-> {
+async function getSql(): Promise<Awaited<ReturnType<typeof initSqlJs>>> {
   if (!sqlPromise) {
     try {
-      if (!wasmPath || !existsSync(wasmPath)) {
-        // Fallback: use sql.js's own loading mechanism
-        sqlPromise = initSqlJs({});
-      } else {
-        const wasmBinary = readFileSync(wasmPath);
-        sqlPromise = initSqlJs({ wasmBinary });
-      }
+      sqlPromise = await initSqlJs({ wasmBinary: decodeWasm(wasmBase64) });
     } catch (err) {
-      // Don't cache a failed init — clear it so a later call can retry
-      // (e.g. after the user fixes the WASM install).
+      // Don't cache a failed init — clear it so a later call can retry.
       sqlPromise = null;
       throw err;
     }
@@ -84,7 +56,7 @@ async function getSqlWithBinary(): Promise<
  * database sizes (typically <100 MB even for large vaults).
  */
 export async function openDatabase(filePath: string): Promise<Database> {
-  const SQL = await getSqlWithBinary();
+  const SQL = await getSql();
   const buffer = readFileSync(filePath);
   return new SQL.Database(new Uint8Array(buffer));
 }
@@ -105,7 +77,7 @@ export function queryAll<T>(
 
     const results: T[] = [];
     while (stmt.step()) {
-      const row = stmt.getAsObject() as unknown as T;
+      const row = stmt.getAsObject<T>();
       results.push(row);
     }
     return results;

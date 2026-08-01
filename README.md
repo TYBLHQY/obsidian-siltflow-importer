@@ -68,7 +68,7 @@ These are managed automatically — don't edit them by hand.
 
 ## Requirements
 
-- Obsidian 1.5.0+ (desktop)
+- Obsidian 1.6.6+ (desktop)
 - A Siltflow vault with its `data.db`
 - Desktop only — the plugin reads the database via Node.js and uses the native file picker
 

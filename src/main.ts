@@ -10,7 +10,6 @@
 import { Modal, Notice, Plugin, Setting, addIcon } from "obsidian";
 import { existsSync } from "fs";
 import type { App } from "obsidian";
-import { setWasmPath } from "./db";
 import {
   SiltflowImporterSettingTab,
   DEFAULT_SETTINGS,
@@ -39,15 +38,6 @@ export default class SiltflowImporterPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
-
-    // Configure sql.js WASM path and ribbon icon
-    const pluginDir = this.manifest.dir || "";
-    const adapter = this.app.vault.adapter;
-    const basePath = (adapter as unknown as { basePath?: string }).basePath;
-    if (basePath && pluginDir) {
-      const fullPath = basePath + "/" + pluginDir;
-      setWasmPath(fullPath);
-    }
 
     // Settings tab
     this.addSettingTab(new SiltflowImporterSettingTab(this.app, this));
@@ -270,7 +260,7 @@ class ImportConfirmModal extends Modal {
     confirmBtn.addEventListener("click", () => {
       const skip = this.skipNextTime;
       this.close();
-      this.onConfirm(skip);
+      void this.onConfirm(skip);
     });
   }
 
