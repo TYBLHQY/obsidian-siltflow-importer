@@ -56,12 +56,48 @@ export interface ImportResult {
 }
 
 /**
+ * Validate the import config before touching the vault.
+ *
+ * - dbPath must be non-empty and point to an existing file.
+ * - outputFolder must be non-empty and a safe vault-relative path: no
+ *   leading slash / drive letter, no `..` traversal, no illegal chars.
+ *
+ * Throws a descriptive Error when invalid so the caller can surface it.
+ */
+export function validateImportConfig(
+  dbPath: string,
+  outputFolder: string,
+): void {
+  if (!dbPath || !dbPath.trim()) {
+    throw new Error("⚠️ Siltflow 数据库位置未配置。请先在设置中填写 data.db 路径。");
+  }
+  if (!outputFolder || !outputFolder.trim()) {
+    throw new Error("⚠️ Obsidian 输出目录未配置。请先在设置中填写输出文件夹。");
+  }
+  const folder = outputFolder.trim();
+  if (
+    /^[/\\]/.test(folder) ||
+    /^[A-Za-z]:[\\/]/.test(folder) ||
+    /\.\./.test(folder) ||
+    /[<>:"|?*]/.test(folder) ||
+    /[\x00-\x1f\x7f]/.test(folder)
+  ) {
+    throw new Error(
+      "⚠️ 输出目录无效：必须是 vault 内的相对路径（不能是绝对路径、含 .. 或非法字符）。",
+    );
+  }
+}
+
+/**
  * Run the full import pipeline.
+ *
+ * Throws if the config is invalid: dbPath must point to an existing file,
+ * and outputFolder must be a safe vault-relative path.
  *
  * @param app Obsidian App instance
  * @param dbPath Path to the Siltflow data.db file
  * @param settings Plugin settings
- * @param selectedDocIds Specific doc IDs to import (from modal), or empty for all
+ * @param selectedDocIds Specific doc IDs to import, or empty for all
  */
 export async function importDatabase(
   app: App,
@@ -69,6 +105,7 @@ export async function importDatabase(
   settings: SiltflowImporterSettings,
   selectedDocIds: string[],
 ): Promise<ImportResult> {
+  validateImportConfig(dbPath, settings.outputFolder);
   const db = await openDatabase(dbPath);
   const vault = app.vault;
 

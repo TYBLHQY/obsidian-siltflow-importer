@@ -24,6 +24,8 @@ export interface SiltflowImporterSettings {
     phrase: boolean;
     sentence: boolean;
   };
+  /** Skip the import confirmation dialog and import directly on ribbon click. */
+  skipImportConfirm: boolean;
 }
 
 export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
@@ -34,8 +36,9 @@ export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
   includeTypes: {
     word: true,
     phrase: true,
-    sentence: true,
+    sentence: false,
   },
+  skipImportConfirm: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -161,6 +164,18 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
               this.plugin.settings.calloutFold,
             );
             new Notice(`✅ 已同步 ${n} 篇笔记的折叠状态`);
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("跳过导入确认")
+      .setDesc("开启后点击 ribbon 或运行导入命令时不再弹出确认框，直接开始同步导入。")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.skipImportConfirm)
+          .onChange(async (value) => {
+            this.plugin.settings.skipImportConfirm = value;
+            await this.plugin.saveSettings();
           }),
       );
   }

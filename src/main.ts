@@ -2,12 +2,12 @@
  * Siltflow Importer — Obsidian Plugin entry point.
  *
  * Registers:
- *  - "Import Siltflow database" command — one-click or file-picker import
- *  - "Change Siltflow database" command — always opens file picker
- *  - Ribbon icon for quick access
+ *  - Ribbon icon + "Import Siltflow database" command — confirm dialog, then
+ *    sync-import every document from the configured DB in one go
+ *  - "Change Siltflow database" command — pick a different data.db
  *  - Settings tab for configuration
  */
-import { Notice, Plugin, addIcon } from "obsidian";
+import { Modal, Notice, Plugin, Setting, addIcon } from "obsidian";
 import { existsSync } from "fs";
 import type { App } from "obsidian";
 import { setWasmPath } from "./db";
@@ -17,7 +17,6 @@ import {
   type SiltflowImporterSettings,
 } from "./settings";
 import { importDatabase, type ImportResult } from "./importer";
-import { DocumentSelectionModal } from "./modal";
 
 // Custom ribbon icon — user's original SVG
 const RIBBON_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24">
@@ -49,20 +48,27 @@ export default class SiltflowImporterPlugin extends Plugin {
     // Register custom icon and add to ribbon
     addIcon("siltflow-importer", RIBBON_ICON);
     this.addRibbonIcon("siltflow-importer", "Import Siltflow database", () => {
-      this.openImportModal();
+      this.confirmAndImport();
     });
 
     // Commands
     this.addCommand({
       id: "import-siltflow-db",
       name: "Import Siltflow database",
-      callback: () => this.openImportModal(),
+      callback: () => this.confirmAndImport(),
     });
 
     this.addCommand({
       id: "change-siltflow-db",
       name: "Change Siltflow database",
-      callback: () => this.openImportModal(true),
+      callback: async () => {
+        const picked = await this.pickDatabaseFile();
+        if (picked) {
+          this.settings.siltflowDbPath = picked;
+          await this.saveSettings();
+          new Notice("✅ Siltflow 数据库已切换");
+        }
+      },
     });
   }
 
@@ -75,55 +81,75 @@ export default class SiltflowImporterPlugin extends Plugin {
   }
 
   // -----------------------------------------------------------------------
-  // Import flow
+  // Import flow — confirm, then sync-import everything
   // -----------------------------------------------------------------------
 
   /**
-   * Open the import modal. The modal handles its own loading animation
-   * internally — the plugin just opens it and reacts to user decisions.
+   * Resolve a usable DB path: the configured one if it exists, otherwise let
+   * the user pick a file. Returns null when cancelled or unavailable.
    */
-  private openImportModal(forceFilePicker = false): void {
-    const modal = new DocumentSelectionModal(this.app, {
-      mode: this.settings.incrementalMode,
-      onModeChange: (mode) => {
-        this.settings.incrementalMode = mode;
-        this.saveSettings();
-      },
-      getDbPath: async () => {
-        let dbPath = this.settings.siltflowDbPath;
+  private async resolveDbPath(): Promise<string | null> {
+    let dbPath = this.settings.siltflowDbPath;
+    if (!dbPath || !existsSync(dbPath)) {
+      const picked = await this.pickDatabaseFile();
+      if (!picked) return null;
+      dbPath = picked;
+      this.settings.siltflowDbPath = dbPath;
+      await this.saveSettings();
+    }
+    return dbPath;
+  }
 
-        if (!dbPath || forceFilePicker || !existsSync(dbPath)) {
-          const picked = await this.pickDatabaseFile();
-          if (!picked) throw new Error("cancelled"); // user cancelled file picker
-          dbPath = picked;
-          this.settings.siltflowDbPath = dbPath;
+  /**
+   * Run a full sync-import of every document, showing a confirmation dialog
+   * first unless the user has chosen to skip it. Used by the ribbon icon and
+   * the "Import" command.
+   */
+  private confirmAndImport(): void {
+    // Skip the dialog when the user opted out.
+    if (this.settings.skipImportConfirm) {
+      this.runImport();
+      return;
+    }
+
+    const modal = new ImportConfirmModal(
+      this.app,
+      this.settings.siltflowDbPath || "（未配置）",
+      this.settings.outputFolder || "（未配置）",
+      async (skipNextTime) => {
+        if (skipNextTime) {
+          this.settings.skipImportConfirm = true;
           await this.saveSettings();
         }
-
-        if (!existsSync(dbPath)) {
-          throw new Error(`Database not found: ${dbPath}`);
-        }
-        return dbPath;
+        await this.runImport();
       },
-      onImport: async (selectedIds) => {
-        const dbPath = this.settings.siltflowDbPath;
-        const result: ImportResult = await importDatabase(
-          this.app,
-          dbPath,
-          this.settings,
-          selectedIds,
-        );
-        new Notice(
-          `✅ Import complete: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped`,
-          8000,
-        );
-      },
-      onError: (msg) => {
-        new Notice(msg);
-      },
-    });
-
+    );
     modal.open();
+  }
+
+  /**
+   * Resolve the DB path (picking a file if needed) and run the import.
+   * Surfaces errors as Notices.
+   */
+  private async runImport(): Promise<void> {
+    const dbPath = await this.resolveDbPath();
+    if (!dbPath) return;
+    try {
+      const result: ImportResult = await importDatabase(
+        this.app,
+        dbPath,
+        this.settings,
+        [], // all documents
+      );
+      new Notice(
+        `✅ 导入完成：新增 ${result.created}，更新 ${result.updated}，跳过 ${result.skipped}`,
+        8000,
+      );
+    } catch (err) {
+      new Notice(
+        `❌ ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -155,5 +181,86 @@ export default class SiltflowImporterPlugin extends Plugin {
       );
       return null;
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Import confirmation modal
+// ---------------------------------------------------------------------------
+
+/**
+ * Confirmation dialog shown before a full sync-import. Built with the DOM
+ * (`contentEl.createEl`) rather than `setContent(string)` so line breaks and
+ * styling render reliably. Shows the configured DB path + output folder and a
+ * "don't ask again" checkbox.
+ */
+class ImportConfirmModal extends Modal {
+  private readonly dbPath: string;
+  private readonly outFolder: string;
+  private readonly onConfirm: (skipNextTime: boolean) => Promise<void>;
+  private skipNextTime = false;
+
+  constructor(
+    app: App,
+    dbPath: string,
+    outFolder: string,
+    onConfirm: (skipNextTime: boolean) => Promise<void>,
+  ) {
+    super(app);
+    this.dbPath = dbPath;
+    this.outFolder = outFolder;
+    this.onConfirm = onConfirm;
+  }
+
+  onOpen(): void {
+    const { contentEl, titleEl } = this;
+    titleEl.setText("导入 Siltflow 数据库");
+
+    contentEl.createDiv().setText(
+      "将按当前设置同步导入全部文档（新增 / 更新 / 删除已导入标注）。",
+    );
+
+    // Path list
+    const paths = contentEl.createDiv("siltflow-confirm-paths");
+    const label = (text: string) => paths.createDiv().createEl("strong", { text });
+    const path = (text: string) =>
+      paths.createDiv("siltflow-confirm-path").setText(text);
+    label("数据库：");
+    path(this.dbPath);
+    paths.createDiv({ attr: { style: "height: 8px" } });
+    label("输出目录：");
+    path(this.outFolder);
+
+    // "Don't ask again" checkbox
+    new Setting(contentEl)
+      .setName("以后不再询问，直接导入")
+      .addToggle((toggle) =>
+        toggle.onChange((value) => {
+          this.skipNextTime = value;
+        }),
+      );
+
+    // Buttons
+    const buttonRow = contentEl.createDiv({ cls: "siltflow-confirm-buttons" });
+    const cancelBtn = buttonRow.createEl("button", {
+      text: "取消",
+      cls: "mod-ghost",
+    });
+    cancelBtn.addEventListener("click", () => this.close());
+
+    const confirmBtn = buttonRow.createEl("button", {
+      text: "开始导入",
+      cls: "mod-cta",
+    });
+    confirmBtn.addEventListener("click", () => {
+      const skip = this.skipNextTime;
+      this.close();
+      this.onConfirm(skip);
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    this.titleEl.empty();
   }
 }

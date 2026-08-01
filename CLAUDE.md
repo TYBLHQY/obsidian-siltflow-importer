@@ -23,8 +23,8 @@ Single-entry esbuild bundle: `src/main.ts` → `main.js` (CJS, ES2018, `obsidian
 **Data flow:**
 ```
 main.ts (Plugin.onload: ribbon + commands)
-  → modal.ts (DocumentSelectionModal: loading spinner → checkbox list)
-    → importer.ts (importDatabase: SQLite queries → group by doc → diff → write)
+  → main.ts (confirmAndImport: ConfirmationModal → resolve DB → importDatabase)
+    → importer.ts (importDatabase: SQLite queries → group by doc → sync diff → write)
       → formatter.ts (buildMarkdownNote: frontmatter + summary + card callouts)
 ```
 
@@ -32,9 +32,8 @@ main.ts (Plugin.onload: ribbon + commands)
 
 | File | Role |
 |------|------|
-| `src/main.ts` | Plugin lifecycle, ribbon icon, commands, settings |
-| `src/modal.ts` | Two-phase modal: loading spinner then doc selection with checkboxes |
-| `src/importer.ts` | Full pipeline: open DB, query tables, group annotations by doc, incremental diff, write one `.md` per document + `_siltflow_import.json` |
+| `src/main.ts` | Plugin lifecycle, ribbon icon, commands, settings. Ribbon + "Import" command show a ConfirmationModal then sync-import all docs; "Change Siltflow database" opens a file picker |
+| `src/importer.ts` | Full pipeline: open DB, query tables, group annotations by doc, sync diff, write one `.md` per document + jsonl indexes. Also exports `validateImportConfig` and `syncCalloutFolds` |
 | `src/formatter.ts` | Build one Markdown note per document: YAML frontmatter + title + AI summary callout + one card-style callout per annotation. AI data rendering matches upstream Siltflow V1/V2 card layout |
 | `src/settings.ts` | Settings interface + settings tab UI |
 | `src/db.ts` | sql.js WASM wrapper — open `.db`, run SELECT, close |
@@ -75,7 +74,14 @@ One `.md` file per document (single-file layout — no `words/` subfolder, no `.
 - `calloutFold`: `"expanded"` | `"collapsed"` | `"none"` — controls annotation callout folding
 - `includeTypes`: per-granularity toggles for V2 annotations (`word` / `phrase` / `sentence`)
 - `incrementalMode`: `"update"` (sync add/change/delete) | `"overwrite"` (full rebuild), default `"update"`
+- `skipImportConfirm`: when on, the ribbon / import command skips the confirmation dialog and imports directly. The dialog shows the configured DB path + output folder and offers this checkbox.
 
 Import always includes AI translations/explanations, skips docs with zero
 annotations, and drops `highlight`-kind annotations (pure PDF marks with no
 AI data).
+
+**Safety guard:** `validateImportConfig` runs at the top of `importDatabase`
+and throws before any vault write when the config is invalid — the DB path is
+empty, or the output folder is empty / not a safe vault-relative path (no
+absolute paths, `..` traversal, drive letters, or illegal filename chars).
+The modal surfaces the error as a Notice.
