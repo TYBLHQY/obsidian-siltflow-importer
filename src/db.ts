@@ -49,41 +49,25 @@ export function setWasmPath(pluginDir: string): void {
   }
 }
 
-/**
- * Initialize sql.js with the bundled WASM file read from disk.
- */
-function getSql(): ReturnType<typeof initSqlJs> {
-  if (!sqlPromise) {
-    sqlPromise = initSqlJs({
-      locateFile: (file: string) => {
-        if (wasmPath && existsSync(wasmPath)) {
-          // Return a custom path — sql.js will try to read it.
-          // For Node.js environments (which Obsidian desktop is),
-          // we can read the WASM bytes ourselves.
-          // But since sql.js's default code uses fetch(), we need
-          // a different approach — read the bytes manually and
-          // pass them via the `wasmBinary` config option.
-          return file; // fallback, won't work in file:// context
-        }
-        return file;
-      },
-    });
-  }
-  return sqlPromise;
-}
-
 // When wasmPath is set, override the initialization to pass binary directly.
 // We do this by letting the user call init with the binary data.
 async function getSqlWithBinary(): Promise<
   Awaited<ReturnType<typeof initSqlJs>>
 > {
   if (!sqlPromise) {
-    if (!wasmPath || !existsSync(wasmPath)) {
-      // Fallback: use sql.js's own loading mechanism
-      sqlPromise = initSqlJs({});
-    } else {
-      const wasmBinary = readFileSync(wasmPath);
-      sqlPromise = initSqlJs({ wasmBinary });
+    try {
+      if (!wasmPath || !existsSync(wasmPath)) {
+        // Fallback: use sql.js's own loading mechanism
+        sqlPromise = initSqlJs({});
+      } else {
+        const wasmBinary = readFileSync(wasmPath);
+        sqlPromise = initSqlJs({ wasmBinary });
+      }
+    } catch (err) {
+      // Don't cache a failed init — clear it so a later call can retry
+      // (e.g. after the user fixes the WASM install).
+      sqlPromise = null;
+      throw err;
     }
   }
   return sqlPromise;
@@ -114,17 +98,20 @@ export function queryAll<T>(
   params?: unknown[],
 ): T[] {
   const stmt = db.prepare(sql);
-  if (params) {
-    stmt.bind(params);
-  }
+  try {
+    if (params) {
+      stmt.bind(params);
+    }
 
-  const results: T[] = [];
-  while (stmt.step()) {
-    const row = stmt.getAsObject() as unknown as T;
-    results.push(row);
+    const results: T[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as unknown as T;
+      results.push(row);
+    }
+    return results;
+  } finally {
+    stmt.free();
   }
-  stmt.free();
-  return results;
 }
 
 /**

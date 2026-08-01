@@ -59,7 +59,7 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
 
     // ── Path section ────────────────────────────────────────────
 
-    containerEl.createEl("h3", { text: "路径" });
+    new Setting(containerEl).setHeading().setName("路径");
 
     new Setting(containerEl)
       .setName("数据库文件")
@@ -89,7 +89,7 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
 
     // ── Content section ─────────────────────────────────────────
 
-    containerEl.createEl("h3", { text: "内容" });
+    new Setting(containerEl).setHeading().setName("内容");
 
     const typeToggles: Array<{
       key: "word" | "phrase" | "sentence";
@@ -116,7 +116,7 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
 
     // ── Import section ──────────────────────────────────────────
 
-    containerEl.createEl("h3", { text: "导入" });
+    new Setting(containerEl).setHeading().setName("导入");
 
     new Setting(containerEl)
       .setName("导入模式")
@@ -156,6 +156,10 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
           .setButtonText("同步已导入笔记")
           .setTooltip("将已导入笔记的卡片折叠状态改写为当前设置")
           .onClick(async () => {
+            if (this.plugin.importBusy) {
+              new Notice("⚠️ 导入正在进行中，请稍候。");
+              return;
+            }
             const n = await syncCalloutFolds(
               this.app.vault,
               this.plugin.settings.outputFolder,
@@ -179,7 +183,7 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
 
     // ── Version info ─────────────────────────────────────────────
 
-    containerEl.createEl("h3", { text: "版本信息" });
+    new Setting(containerEl).setHeading().setName("版本信息");
 
     new Setting(containerEl)
       .setName("插件数据格式版本")
@@ -191,7 +195,10 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
 
     // Read the source DB version asynchronously.
     void getDatabaseVersion(this.plugin.settings.siltflowDbPath).then((v) => {
-      if (v === null) return;
+      if (v === null) {
+        dbVersion.descEl.setText("无法读取（检查数据库路径）");
+        return;
+      }
       dbVersion.descEl.setText(String(v));
     });
   }

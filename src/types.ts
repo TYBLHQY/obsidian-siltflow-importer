@@ -157,6 +157,8 @@ export interface DocumentRenderData {
   aiVersions: Map<string, number>;
   /** Max AI schema version across the document's annotations (0 if none). */
   aiVersion: number;
+  /** Original import date (YYYY-MM-DD). Sticky across re-renders; "" = new. */
+  importedAt: string;
   /** Document AI summary, or null. */
   summary: SummaryRow | null;
   /** Vault-relative path of this document's output note. */
@@ -182,6 +184,8 @@ export interface DocumentIndexLine {
   /** Vault-relative path of this document's annotation index (.jsonl),
    *  e.g. "siltflow/_meta/anns/<doc>.jsonl". */
   annsFile: string;
+  /** Original import date (YYYY-MM-DD), sticky across re-renders. */
+  importedAt: string;
   /** ISO timestamp of the doc summary at last write ("" if none). */
   summaryImportedAt: string;
   lastSync: string;
@@ -194,4 +198,7 @@ export interface AnnotationIndexLine {
   /** ISO timestamp of the annotation/ai_result at last write. The annotation
    *  is re-imported when its current `updated_at` is newer. */
   importedAt: string;
+  /** ISO timestamp of the ai_result at last write ("" if none at write time).
+   *  Lets sync detect when an ai_result was deleted since the last import. */
+  aiUpdatedAt?: string;
 }

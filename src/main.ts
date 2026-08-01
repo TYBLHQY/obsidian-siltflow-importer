@@ -29,6 +29,13 @@ const RIBBON_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height=
 
 export default class SiltflowImporterPlugin extends Plugin {
   settings!: SiltflowImporterSettings;
+  /** True while an import is running — prevents concurrent imports. */
+  private isImporting = false;
+
+  /** Whether an import is currently running (checked by the settings tab). */
+  get importBusy(): boolean {
+    return this.isImporting;
+  }
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -53,13 +60,13 @@ export default class SiltflowImporterPlugin extends Plugin {
 
     // Commands
     this.addCommand({
-      id: "import-siltflow-db",
+      id: "import-database",
       name: "Import Siltflow database",
       callback: () => this.confirmAndImport(),
     });
 
     this.addCommand({
-      id: "change-siltflow-db",
+      id: "change-database",
       name: "Change Siltflow database",
       callback: async () => {
         const picked = await this.pickDatabaseFile();
@@ -132,9 +139,14 @@ export default class SiltflowImporterPlugin extends Plugin {
    * Surfaces errors as Notices.
    */
   private async runImport(): Promise<void> {
-    const dbPath = await this.resolveDbPath();
-    if (!dbPath) return;
+    if (this.isImporting) {
+      new Notice("⚠️ 导入正在进行中，请稍候。");
+      return;
+    }
+    this.isImporting = true;
     try {
+      const dbPath = await this.resolveDbPath();
+      if (!dbPath) return;
       const result: ImportResult = await importDatabase(
         this.app,
         dbPath,
@@ -149,6 +161,8 @@ export default class SiltflowImporterPlugin extends Plugin {
       new Notice(
         `❌ 导入失败：${err instanceof Error ? err.message : String(err)}`,
       );
+    } finally {
+      this.isImporting = false;
     }
   }
 

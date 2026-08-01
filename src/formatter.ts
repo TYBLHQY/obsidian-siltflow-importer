@@ -314,7 +314,7 @@ export function buildMarkdownNote(
 ): string {
   const sections: string[] = [];
 
-  // 1. YAML frontmatter (provenance + review stats)
+  // 1. YAML frontmatter (provenance)
   sections.push(buildFrontmatter(data));
 
   // 2. Document title
@@ -354,7 +354,8 @@ function buildFrontmatter(data: DocumentRenderData): string {
   const fm: Record<string, unknown> = {
     siltflow_doc_id: data.doc.id,
     siltflow_source: data.doc.original_name || data.doc.title,
-    siltflow_imported: new Date().toISOString().slice(0, 10),
+    // Keep the original import date on re-renders; only fresh notes stamp today.
+    siltflow_imported: data.importedAt || new Date().toISOString().slice(0, 10),
     siltflow_ai_version: data.aiVersion || 0,
     pages: data.doc.total_pages ?? null,
   };
