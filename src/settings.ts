@@ -17,16 +17,10 @@ export interface SiltflowImporterSettings {
   includeAIResults: boolean;
   /** Include FSRS card stats (total/new/due) in frontmatter. */
   includeFSRSStats: boolean;
-  /** Annotation callout fold behavior. */
-  calloutFold: "expanded" | "collapsed" | "none";
   /** Incremental import mode. */
   incrementalMode: "append" | "update" | "overwrite";
-  /** Preserve Siltflow folder hierarchy in output. */
-  preserveFolderStructure: boolean;
-  /** Update existing annotations' AI results when re-importing. */
-  updateExistingAIResults: boolean;
-  /** Auto-generate .base dashboard file. */
-  createBaseFile: boolean;
+  /** Fold state of each annotation callout in the note. */
+  calloutFold: "expanded" | "collapsed" | "none";
   /** Import documents that have zero annotations. */
   includeDocumentsWithoutAnnotations: boolean;
 }
@@ -36,11 +30,8 @@ export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
   outputFolder: "Siltflow",
   includeAIResults: true,
   includeFSRSStats: true,
-  calloutFold: "expanded",
   incrementalMode: "append",
-  preserveFolderStructure: true,
-  updateExistingAIResults: false,
-  createBaseFile: true,
+  calloutFold: "expanded",
   includeDocumentsWithoutAnnotations: true,
 };
 
@@ -118,24 +109,6 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
-      .setName("Callout 折叠模式")
-      .setDesc("默认展开：标注内容展开可见；默认关闭：折叠需点击展开；不可折叠：无折叠按钮。")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("expanded", "默认展开")
-          .addOption("collapsed", "默认关闭")
-          .addOption("none", "不可折叠")
-          .setValue(this.plugin.settings.calloutFold)
-          .onChange(async (value) => {
-            this.plugin.settings.calloutFold = value as
-              | "expanded"
-              | "collapsed"
-              | "none";
-            await this.plugin.saveSettings();
-          }),
-      );
-
     // ── Import strategy section ─────────────────────────────────
 
     containerEl.createEl("h3", { text: "导入策略" });
@@ -161,37 +134,19 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("保留 Siltflow 文件夹层级")
-      .setDesc("在输出目录下重建 Siltflow 的文件夹结构。")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.preserveFolderStructure)
+      .setName("标注卡片折叠状态")
+      .setDesc("控制每个标注卡片 callout 的默认折叠状态。")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("expanded", "默认展开")
+          .addOption("collapsed", "默认折叠")
+          .addOption("none", "不可折叠")
+          .setValue(this.plugin.settings.calloutFold)
           .onChange(async (value) => {
-            this.plugin.settings.preserveFolderStructure = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("更新已有 AI 结果")
-      .setDesc("增量导入时，如果 Siltflow 中的 AI 翻译有更新（ai_version 更高），则更新对应标注。")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.updateExistingAIResults)
-          .onChange(async (value) => {
-            this.plugin.settings.updateExistingAIResults = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("生成 Base 仪表盘")
-      .setDesc("在输出目录自动创建/更新 _Siltflow.base 文件，提供数据库视图。")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.createBaseFile)
-          .onChange(async (value) => {
-            this.plugin.settings.createBaseFile = value;
+            this.plugin.settings.calloutFold = value as
+              | "expanded"
+              | "collapsed"
+              | "none";
             await this.plugin.saveSettings();
           }),
       );

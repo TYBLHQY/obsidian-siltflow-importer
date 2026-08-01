@@ -151,27 +151,61 @@ export interface ParsedAIResult {
   [key: string]: unknown;
 }
 
-/** Grouped data for a single document, ready for Markdown generation. */
-export interface DocumentImportData {
+/** Parsed FSRS card state (subset of the ts-fsrs Card fields we care about). */
+export interface ParsedFSRSCard {
+  /** 0 = New, 1 = Learning, 2 = Review, 3 = Relearning. */
+  state: number;
+  /** ISO datetime of the next review (or null if not set). */
+  due: string | null;
+  /** Number of times reviewed. */
+  reps: number;
+}
+
+/**
+ * Input to buildMarkdownNote — one document with everything needed to render
+ * a single Markdown note containing all of its annotation callout cards.
+ */
+export interface DocumentRenderData {
   doc: DocumentRow;
+  /** The annotations to render, in display order. */
   annotations: AnnotationRow[];
-  aiResults: Map<string, ParsedAIResult>; // keyed by annotation_id
-  aiVersion: number; // max ai_result version across annotations (0 if none)
+  /** Map of annotation ID → parsed AI result (V1 or V2), or undefined. */
+  aiResults: Map<string, ParsedAIResult | undefined>;
+  /** AI schema version per annotation ID (0 if none). */
+  aiVersions: Map<string, number>;
+  /** Parsed FSRS card per annotation ID, or undefined. */
+  cards: Map<string, ParsedFSRSCard | undefined>;
+  /** Max AI schema version across the document's annotations (0 if none). */
+  aiVersion: number;
+  /** Document AI summary, or null. */
   summary: SummaryRow | null;
-  fsrsCards: FSRSCardRow[];
-  /** Resolved folder path in the Obsidian vault (empty string = root of output dir). */
-  folderPath: string;
+  /** Vault-relative path of this document's output note. */
+  notePath: string;
+  /** Whether to include FSRS state/due/reps in the frontmatter. */
+  includeFSRSStats: boolean;
 }
 
 /** The index file tracking all past imports. */
 export interface ImportIndex {
+  /** Schema version — bumped when the index shape changes. */
+  formatVersion: number;
   lastImport: string;
   dbPath: string;
   documents: Record<
     string,
     {
+      /** Vault-relative path of this document's note, e.g. "siltflow/<doc>.md". */
       file: string;
-      annotations: number;
+      /** Map of annotation ID → the position of its callout card in the note. */
+      annotations: Record<
+        string,
+        {
+          /** AI schema version at last write (for update-mode detection). */
+          aiVersion: number;
+          /** FSRS due date (ISO) at last write, or null. */
+          cardDue: string | null;
+        }
+      >;
       lastSync: string;
     }
   >;

@@ -6,8 +6,9 @@
  *   2. Query all tables
  *   3. Group by document
  *   4. Incremental diff against existing import index + .md files
- *   5. Write/update .md files via Obsidian Vault API
- *   6. Update import index and .base dashboard
+ *   5. Write one Markdown note per document (frontmatter + title + summary
+ *      callout + one card-style callout per annotation)
+ *   6. Update import index
  */
 import type { App, Vault } from "obsidian";
 import {
@@ -15,17 +16,20 @@ import {
   queryAll,
   closeDatabase,
 } from "./db";
-import { buildMarkdownNote, buildAIDetailBlocks, detectTargetLang } from "./formatter";
-import { generateBaseFileContent, updateBaseFileContent } from "./base-generator";
+import {
+  buildMarkdownNote,
+  buildCardBlocks,
+  type FormatterOptions,
+} from "./formatter";
 import type {
   DocumentRow,
   AnnotationRow,
   AIResultRow,
   SummaryRow,
   FSRSCardRow,
-  FolderRow,
   ParsedAIResult,
-  DocumentImportData,
+  ParsedFSRSCard,
+  DocumentRenderData,
   ImportIndex,
 } from "./types";
 import type { SiltflowImporterSettings } from "./settings";
@@ -67,7 +71,6 @@ export async function importDatabase(
     const aiResults = queryAll<AIResultRow>(db, "SELECT * FROM ai_results");
     const summaries = queryAll<SummaryRow>(db, "SELECT * FROM summaries");
     const fsrsCards = queryAll<FSRSCardRow>(db, "SELECT * FROM fsrs_cards");
-    const folders = queryAll<FolderRow>(db, "SELECT * FROM folders");
 
     // 2. Build lookup maps
     const aiResultMap = new Map<string, Map<string, ParsedAIResult>>();
@@ -99,17 +102,6 @@ export async function importDatabase(
       cardsMap.set(c.document_id, arr);
     }
 
-    // Build folder path map
-    const folderMap = buildFolderPathMap(folders);
-    const docFolderMap = new Map<string, string>();
-    for (const doc of documents) {
-      if (doc.folder_id) {
-        docFolderMap.set(doc.id, folderMap.get(doc.folder_id) || "");
-      } else {
-        docFolderMap.set(doc.id, "");
-      }
-    }
-
     // 3. Group annotations by document (must precede doc filtering)
     const annotationsByDoc = new Map<string, AnnotationRow[]>();
     for (const ann of annotations) {
@@ -135,97 +127,108 @@ export async function importDatabase(
     // 5. Load import index
     const index = await loadImportIndex(vault, settings.outputFolder);
 
+    // Precompute safe doc filenames; dedup collisions with a docId suffix.
+    const safeDocMap = computeSafeDocSlugs(docsToImport);
+
     // 6. Process each document
     const result: ImportResult = { created: 0, updated: 0, skipped: 0 };
 
     for (const doc of docsToImport) {
-      const data: DocumentImportData = {
+      const safeDoc = safeDocMap.get(doc.id) || sanitizeFilename(doc.title);
+      const notePath = `${settings.outputFolder}/${safeDoc}.md`;
+
+      const docAnnotations = (annotationsByDoc.get(doc.id) || []).sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+
+      const aiVersions = aiVersionMap.get(doc.id) || new Map<string, number>();
+      const data: DocumentRenderData = {
         doc,
-        annotations: (annotationsByDoc.get(doc.id) || []).sort(
-          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+        annotations: docAnnotations,
+        aiResults: new Map(
+          docAnnotations.map((a) => [
+            a.id,
+            aiResultMap.get(doc.id)?.get(a.id),
+          ]),
         ),
-        aiResults: aiResultMap.get(doc.id) || new Map(),
-        aiVersion: getMaxAIVersion(aiVersionMap.get(doc.id)),
+        aiVersions: new Map(
+          docAnnotations.map((a) => [a.id, aiVersions.get(a.id) ?? 0]),
+        ),
+        cards: new Map(
+          docAnnotations.map((a) => [a.id, parseCard(cardsMap.get(doc.id)?.find((c) => c.annotation_id === a.id))]),
+        ),
+        aiVersion: getMaxAIVersion(aiVersions),
         summary: summaryMap.get(doc.id) || null,
-        fsrsCards: cardsMap.get(doc.id) || [],
-        folderPath: settings.preserveFolderStructure
-          ? docFolderMap.get(doc.id) || ""
-          : "",
+        notePath,
+        includeFSRSStats: settings.includeFSRSStats,
       };
 
-      const existingEntry = index?.documents?.[doc.id];
+      await ensureFolderExists(vault, settings.outputFolder);
 
-      if (settings.incrementalMode === "overwrite" || !existingEntry) {
-        // Full create (new doc or overwrite mode)
-        const filePath = buildFilePath(data, settings);
-        await ensureFolderExists(vault, getFolderFromPath(filePath));
-        const content = buildMarkdownNote(data, {
-          includeAIResults: settings.includeAIResults,
-          includeFSRSStats: settings.includeFSRSStats,
-          calloutFold: settings.calloutFold,
-        });
+      const options: FormatterOptions = {
+        includeAIResults: settings.includeAIResults,
+        includeFSRSStats: settings.includeFSRSStats,
+        calloutFold: settings.calloutFold,
+      };
 
-        const existingFile = vault.getAbstractFileByPath(filePath);
+      const existingEntry = index.documents[doc.id];
+      const existingFile = existingEntry
+        ? vault.getAbstractFileByPath(existingEntry.file)
+        : null;
+
+      // ── Decide write strategy per incremental mode ──
+      const fullRender =
+        settings.incrementalMode === "overwrite" ||
+        !existingEntry ||
+        !existingFile ||
+        (settings.incrementalMode === "update" &&
+          hasChangedAI(existingEntry, aiVersions));
+
+      if (fullRender) {
+        const content = buildMarkdownNote(data, options);
         if (existingFile) {
           await vault.modify(existingFile as import("obsidian").TFile, content);
           result.updated++;
         } else {
-          await vault.create(filePath, content);
+          await vault.create(notePath, content);
           result.created++;
         }
-
-        // Update index
-        index.documents[doc.id] = {
-          file: filePath,
-          annotations: data.annotations.length,
-          lastSync: new Date().toISOString(),
-        };
       } else {
-        // Incremental: append new annotations
-        const existingFilePath = existingEntry.file;
-        const existingFile = vault.getAbstractFileByPath(existingFilePath);
-        if (!existingFile) {
-          // File was deleted — recreate
-          const filePath = buildFilePath(data, settings);
-          const content = buildMarkdownNote(data, {
-            includeAIResults: settings.includeAIResults,
-            includeFSRSStats: settings.includeFSRSStats,
-            calloutFold: settings.calloutFold,
-          });
-          await vault.create(filePath, content);
-          result.created++;
-          index.documents[doc.id].file = filePath;
-        } else {
-          const existingContent = await vault.read(
+        // Incremental append: add only annotations missing from the note.
+        const existingContent = await vault.read(
+          existingFile as import("obsidian").TFile,
+        );
+        const existingAnnIds = extractAnnotationIds(existingContent);
+        const newAnnotations = data.annotations.filter(
+          (a) => !existingAnnIds.has(a.id),
+        );
+
+        if (newAnnotations.length > 0) {
+          const appendix = buildCardBlocks(newAnnotations, data, options);
+          const updatedContent = existingContent.trimEnd() + "\n\n" + appendix + "\n";
+          await vault.modify(
             existingFile as import("obsidian").TFile,
+            updatedContent,
           );
-          const existingAnnIds = extractAnnotationIds(existingContent);
-          const newAnnotations = data.annotations.filter(
-            (a) => !existingAnnIds.has(a.id),
-          );
-
-          if (newAnnotations.length > 0) {
-            const appendix = buildAnnotationAppendix(
-              newAnnotations,
-              data.aiResults,
-              data.aiVersion,
-              settings,
-            );
-            const updatedContent = existingContent + "\n" + appendix;
-            await vault.modify(
-              existingFile as import("obsidian").TFile,
-              updatedContent,
-            );
-            result.updated++;
-          } else {
-            result.skipped++;
-          }
-
-          // Update index entry
-          index.documents[doc.id].annotations = data.annotations.length;
-          index.documents[doc.id].lastSync = new Date().toISOString();
+          result.updated++;
+        } else {
+          result.skipped++;
         }
       }
+
+      // Update index entry
+      const annotationsIndex: ImportIndex["documents"][string]["annotations"] = {};
+      for (const ann of docAnnotations) {
+        annotationsIndex[ann.id] = {
+          aiVersion: aiVersions.get(ann.id) ?? 0,
+          cardDue: data.cards.get(ann.id)?.due ?? null,
+        };
+      }
+      index.documents[doc.id] = {
+        file: notePath,
+        annotations: annotationsIndex,
+        lastSync: new Date().toISOString(),
+      };
     }
 
     // 7. Save import index
@@ -233,51 +236,65 @@ export async function importDatabase(
     index.dbPath = dbPath;
     await saveImportIndex(vault, settings.outputFolder, index);
 
-    // 8. Update .base dashboard
-    if (settings.createBaseFile) {
-      await updateBaseDashboard(vault, settings.outputFolder);
-    }
-
     return result;
   } finally {
     closeDatabase(db);
   }
 }
 
-// ---------------------------------------------------------------------------
-// Folder path builder
-// ---------------------------------------------------------------------------
+/** True when any of the doc's annotations has a newer AI version than last written. */
+function hasChangedAI(
+  existingEntry: ImportIndex["documents"][string],
+  aiVersions: Map<string, number>,
+): boolean {
+  for (const [annId, version] of aiVersions) {
+    const prev = existingEntry.annotations?.[annId]?.aiVersion ?? 0;
+    if (version !== prev) return true;
+  }
+  return false;
+}
 
-function buildFolderPathMap(folders: FolderRow[]): Map<string, string> {
+/**
+ * Assign a unique safe doc slug per document. Duplicate titles (after
+ * sanitization) get a short docId suffix so per-doc notes never collide.
+ */
+function computeSafeDocSlugs(docs: DocumentRow[]): Map<string, string> {
   const map = new Map<string, string>();
-  const parentMap = new Map<string, string | null>();
-  const nameMap = new Map<string, string>();
-
-  for (const f of folders) {
-    parentMap.set(f.id, f.parent_id);
-    nameMap.set(f.id, f.name);
+  const used = new Map<string, number>();
+  for (const doc of docs) {
+    const base = sanitizeFilename(doc.title);
+    const count = used.get(base) || 0;
+    used.set(base, count + 1);
+    const slug = count > 0 ? `${base}-${doc.id.slice(0, 8)}` : base;
+    map.set(doc.id, slug);
   }
-
-  function getPath(id: string): string {
-    if (map.has(id)) return map.get(id)!;
-    const parentId = parentMap.get(id);
-    if (!parentId) {
-      const name = nameMap.get(id) || "";
-      map.set(id, name ? `${name}/` : "");
-      return map.get(id)!;
-    }
-    const parentPath = getPath(parentId);
-    const name = nameMap.get(id) || "";
-    const path = parentPath ? `${parentPath}${name}/` : `${name}/`;
-    map.set(id, path);
-    return path;
-  }
-
-  for (const f of folders) {
-    getPath(f.id);
-  }
-
   return map;
+}
+
+/** Parse an FSRS card row into the fields we expose. */
+function parseCard(card: FSRSCardRow | undefined): ParsedFSRSCard | undefined {
+  if (!card) return undefined;
+  try {
+    const raw = JSON.parse(card.data);
+    return {
+      state: raw.state ?? 0,
+      due: raw.due ?? null,
+      reps: raw.reps ?? 0,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Extract the set of siltflow-annotation IDs embedded in a note's callouts. */
+function extractAnnotationIds(content: string): Set<string> {
+  const ids = new Set<string>();
+  const re = /siltflow-annotation:\s*([0-9a-f-]{36}|[^\s,]+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    ids.add(m[1]);
+  }
+  return ids;
 }
 
 // ---------------------------------------------------------------------------
@@ -285,25 +302,37 @@ function buildFolderPathMap(folders: FolderRow[]): Map<string, string> {
 // ---------------------------------------------------------------------------
 
 const INDEX_FILENAME = "_siltflow_import.json";
+const META_FOLDER = "_meta";
+const INDEX_FORMAT_VERSION = 4;
+
+function freshIndex(): ImportIndex {
+  return {
+    formatVersion: INDEX_FORMAT_VERSION,
+    lastImport: "",
+    dbPath: "",
+    documents: {},
+  };
+}
 
 async function loadImportIndex(
   vault: Vault,
   outputFolder: string,
 ): Promise<ImportIndex> {
-  const indexPath = `${outputFolder}/${INDEX_FILENAME}`;
+  const indexPath = `${outputFolder}/${META_FOLDER}/${INDEX_FILENAME}`;
   const file = vault.getAbstractFileByPath(indexPath);
   if (!file) {
-    return {
-      lastImport: "",
-      dbPath: "",
-      documents: {},
-    };
+    return freshIndex();
   }
   try {
     const content = await vault.read(file as import("obsidian").TFile);
-    return JSON.parse(content) as ImportIndex;
+    const parsed = JSON.parse(content) as ImportIndex;
+    if (parsed.formatVersion !== INDEX_FORMAT_VERSION) {
+      // Old schema (single-file-per-doc or earlier) — start fresh.
+      return freshIndex();
+    }
+    return parsed;
   } catch {
-    return { lastImport: "", dbPath: "", documents: {} };
+    return freshIndex();
   }
 }
 
@@ -312,171 +341,20 @@ async function saveImportIndex(
   outputFolder: string,
   index: ImportIndex,
 ): Promise<void> {
-  const indexPath = `${outputFolder}/${INDEX_FILENAME}`;
+  const indexPath = `${outputFolder}/${META_FOLDER}/${INDEX_FILENAME}`;
   const content = JSON.stringify(index, null, 2);
   const file = vault.getAbstractFileByPath(indexPath);
   if (file) {
     await vault.modify(file as import("obsidian").TFile, content);
   } else {
-    await ensureFolderExists(vault, outputFolder);
+    await ensureFolderExists(vault, `${outputFolder}/${META_FOLDER}`);
     await vault.create(indexPath, content);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Annotation ID extraction (for incremental import)
-// ---------------------------------------------------------------------------
-
-/**
- * Parse existing .md content to find all imported annotation IDs.
- *
- * Annotation IDs are stored in HTML comments:
- * `<!-- siltflow-annotation: ann-1, ai-version: 1 -->`
- */
-function extractAnnotationIds(markdown: string): Set<string> {
-  const ids = new Set<string>();
-  const regex = /<!--\s*siltflow-annotation:\s*([^\s,]+)/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(markdown)) !== null) {
-    ids.add(match[1]);
-  }
-  return ids;
-}
-
-// ---------------------------------------------------------------------------
-// Incremental appendix builder
-// ---------------------------------------------------------------------------
-
-function buildAnnotationAppendix(
-  annotations: AnnotationRow[],
-  aiResults: Map<string, ParsedAIResult>,
-  aiVersion: number,
-  settings: SiltflowImporterSettings,
-): string {
-  const parts: string[] = [""];
-  for (const ann of annotations) {
-    const ai = aiResults.get(ann.id);
-    const fold =
-      settings.calloutFold === "none"
-        ? ""
-        : settings.calloutFold === "collapsed"
-          ? "+"
-          : "-";
-    const titleText = ann.text
-      ? ann.text.replace(/\n/g, " ").slice(0, 60)
-      : ann.type;
-
-    parts.push(`> [!${ann.type}]${fold} ${titleText}`);
-
-    const metaParts: string[] = [`siltflow-annotation: ${ann.id}`];
-    if (aiVersion > 0) {
-      metaParts.push(`ai-version: ${aiVersion}`);
-    }
-    parts.push(`> <!-- ${metaParts.join(", ")} -->`);
-
-    // ── AI header: source/target language ──
-    const langParts: string[] = [];
-    if (ai?.input?.source_lang) langParts.push(`Source: \`${ai.input.source_lang}\``);
-    const targetLang = ai?.target_lang || (ai ? detectTargetLang(ai) : null);
-    if (targetLang) langParts.push(`Target: \`${targetLang}\``);
-
-    if (ann.page_number) {
-      parts.push(`> **Page**: ${ann.page_number}`);
-    }
-
-    if (ann.text) {
-      parts.push("> " + ann.text.replace(/\n/g, "\n> "));
-    }
-
-    if (settings.includeAIResults && ai) {
-      if (langParts.length > 0) {
-        parts.push(">");
-        parts.push("> " + langParts.join(" | "));
-      }
-
-      const { core, details } = buildAIDetailBlocks(ai, ann.text ?? "");
-      // Core content (translation, meta tags, definitions/meanings)
-      for (const line of core) {
-        if (line === "") {
-          parts.push(">");
-        } else {
-          parts.push("> " + line.replace(/\n/g, "\n> "));
-        }
-      }
-      // Details (examples, collocations, alternatives, synonyms)
-      if (details.length > 0) {
-        parts.push(">");
-        for (const line of details) {
-          if (line === "") {
-            parts.push(">");
-          } else {
-            parts.push("> " + line.replace(/\n/g, "\n> "));
-          }
-        }
-      }
-    }
-    parts.push("");
-  }
-  return parts.join("\n");
-}
-
-// ---------------------------------------------------------------------------
-// Base dashboard update
-// ---------------------------------------------------------------------------
-
-const BASE_FILENAME = "_Siltflow.base";
-
-async function updateBaseDashboard(
-  vault: Vault,
-  outputFolder: string,
-): Promise<void> {
-  const basePath = `${outputFolder}/${BASE_FILENAME}`;
-  const existingFile = vault.getAbstractFileByPath(basePath);
-
-  // Known frontmatter properties that might be present
-  const knownProps = [
-    "siltflow_source",
-    "siltflow_ai_version",
-    "total_cards",
-    "new_cards",
-    "due_cards",
-    "pages",
-  ];
-
-  if (existingFile) {
-    const existingYaml = await vault.read(
-      existingFile as import("obsidian").TFile,
-    );
-    const updated = updateBaseFileContent(existingYaml, knownProps);
-    await vault.modify(existingFile as import("obsidian").TFile, updated);
-  } else {
-    await ensureFolderExists(vault, outputFolder);
-    const content = generateBaseFileContent();
-    await vault.create(basePath, content);
   }
 }
 
 // ---------------------------------------------------------------------------
 // Path utilities
 // ---------------------------------------------------------------------------
-
-function buildFilePath(
-  data: DocumentImportData,
-  settings: SiltflowImporterSettings,
-): string {
-  const safeName = sanitizeFilename(data.doc.title);
-  const folder = settings.outputFolder;
-  const subFolder = data.folderPath ? `${folder}/${data.folderPath}` : folder;
-  // Remove trailing slash
-  const cleanSubFolder = subFolder.replace(/\/$/, "");
-  return `${cleanSubFolder}/${safeName}.md`;
-}
-
-function getFolderFromPath(filePath: string): string {
-  const parts = filePath.split("/");
-  parts.pop(); // remove filename
-  return parts.join("/");
-}
 
 async function ensureFolderExists(
   vault: Vault,
@@ -498,10 +376,13 @@ async function ensureFolderExists(
 }
 
 function sanitizeFilename(name: string): string {
-  // Replace characters invalid in filenames
+  // Replace characters invalid in filenames; strip control chars and quotes
+  // so folder names and file.inFolder(...) arguments stay YAML-safe.
   return name
-    .replace(/[/\\?%*:|"<>]/g, "-")
-    .replace(/\s+/g, " ")
+    .replace(/['"`]/g, "")
+    .replace(/[/\\?%*:|<>]/g, "-")
+    .replace(/\s+/g, " ") // collapse whitespace (incl. newlines) before stripping
+    .replace(/[\x00-\x1f\x7f]/g, "") // strip remaining control chars
     .trim()
     .slice(0, 200); // Reasonable max length
 }

@@ -1,16 +1,19 @@
 /**
  * Markdown formatter — converts Siltflow DB data into Obsidian Markdown notes.
  *
- * Output format: YAML frontmatter + document title + AI summary callout +
- * annotation callouts with bilingual content (Original / Translation / Analysis).
+ * Output format: one note per document. Each note has YAML frontmatter +
+ * document title + AI summary callout + a card-style callout for every
+ * annotation (word/phrase/sentence). Empty sections are omitted at generation
+ * time, so nothing shows for annotations without AI data.
  *
  * Each annotation callout embeds an HTML comment with its siltflow-annotation
  * ID and AI version for incremental import diffing.
  */
 import type {
-  DocumentImportData,
+  DocumentRenderData,
   AnnotationRow,
   ParsedAIResult,
+  ParsedFSRSCard,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -18,21 +21,11 @@ import type {
 // ---------------------------------------------------------------------------
 
 /**
- * Try to infer target language from AI data (V1 target_lang or V2 meanings translations).
- */
-export function detectTargetLang(ai: ParsedAIResult): string | null {
-  if (ai.target_lang) return ai.target_lang;
-  // V2: no explicit target_lang; infer from context (most commonly zh-CN for Siltflow)
-  if (ai.output?.meanings?.length) return "zh-CN";
-  if (ai.output?.translation) return "zh-CN";
-  return null;
-}
-
-/**
  * Extract the best available translation from a ParsedAIResult,
  * handling both V1 and V2 data formats.
  */
-export function extractAITranslation(ai: ParsedAIResult): string | null {
+export function extractAITranslation(ai: ParsedAIResult | undefined): string | null {
+  if (!ai) return null;
   // V1: flat translation field
   if (ai.translation) return ai.translation;
   // V1 legacy: deprecated translate field
@@ -74,7 +67,11 @@ interface DetailLines {
  * V1: meta tags + definitions (core), examples + collocations + alternatives (details)
  * V2: type-specific sub-views (Word / Phrase / Sentence)
  */
-export function buildAIDetailBlocks(ai: ParsedAIResult, text: string): DetailLines {
+export function buildAIDetailBlocks(
+  ai: ParsedAIResult | undefined,
+  text: string,
+): DetailLines {
+  if (!ai) return { core: [], details: [] };
   // ── V1 rendering ──
   if (!ai.input?.type) return buildV1Blocks(ai, text);
 
@@ -290,14 +287,18 @@ function buildV2SentenceBlocks(
 
 /**
  * Build a complete Markdown note for one Siltflow document.
+ *
+ * Single-file layout: frontmatter + title + AI summary callout + one
+ * card-style callout per annotation. Cards render their sections only when
+ * that section has content (empty fields never appear).
  */
 export function buildMarkdownNote(
-  data: DocumentImportData,
+  data: DocumentRenderData,
   options: FormatterOptions,
 ): string {
   const sections: string[] = [];
 
-  // 1. YAML frontmatter
+  // 1. YAML frontmatter (provenance + review stats)
   sections.push(buildFrontmatter(data));
 
   // 2. Document title
@@ -309,7 +310,7 @@ export function buildMarkdownNote(
     sections.push(buildSummaryCallout(data.summary.text, data.aiVersion));
   }
 
-  // 4. Annotation header + callouts
+  // 4. Annotation cards
   if (data.annotations.length > 0) {
     sections.push("---");
     sections.push("");
@@ -317,8 +318,7 @@ export function buildMarkdownNote(
     sections.push("");
 
     for (const ann of data.annotations) {
-      const ai = data.aiResults.get(ann.id);
-      sections.push(buildAnnotationCallout(ann, ai, data.aiVersion, options));
+      sections.push(buildAnnotationCard(ann, data, options));
     }
   }
 
@@ -328,14 +328,28 @@ export function buildMarkdownNote(
 export interface FormatterOptions {
   includeAIResults: boolean;
   includeFSRSStats: boolean;
+  /** Controls the fold marker on each annotation callout. */
   calloutFold: "expanded" | "collapsed" | "none";
+}
+
+/**
+ * Render a subset of a document's annotations as card callouts only (no
+ * frontmatter / title / summary). Used by the incremental-append path to add
+ * newly discovered annotations to an existing note.
+ */
+export function buildCardBlocks(
+  annotations: AnnotationRow[],
+  data: DocumentRenderData,
+  options: FormatterOptions,
+): string {
+  return annotations.map((ann) => buildAnnotationCard(ann, data, options)).join("\n");
 }
 
 // ---------------------------------------------------------------------------
 // Frontmatter
 // ---------------------------------------------------------------------------
 
-function buildFrontmatter(data: DocumentImportData): string {
+function buildFrontmatter(data: DocumentRenderData): string {
   const fm: Record<string, unknown> = {
     siltflow_doc_id: data.doc.id,
     siltflow_source: data.doc.original_name || data.doc.title,
@@ -344,35 +358,32 @@ function buildFrontmatter(data: DocumentImportData): string {
     pages: data.doc.total_pages ?? null,
   };
 
-  const totalCards = data.fsrsCards.length;
-  if (totalCards > 0) {
-    fm["total_cards"] = totalCards;
-
-    // Count FSRS card states
-    let newCount = 0;
-    let dueCount = 0;
-    for (const card of data.fsrsCards) {
-      try {
-        const parsed = JSON.parse(card.data);
-        if (parsed.state === "New" || parsed.state === 0) {
-          newCount++;
-        } else if (parsed.due) {
-          const due = new Date(parsed.due);
-          if (due.getTime() <= Date.now()) {
-            dueCount++;
-          }
-        }
-      } catch {
-        // skip unparseable cards
+  // Count FSRS card states (only annotations that actually have a card)
+  let totalCards = 0;
+  let newCount = 0;
+  let dueCount = 0;
+  for (const card of data.cards.values()) {
+    if (!card) continue;
+    totalCards++;
+    if (card.state === 0) {
+      newCount++;
+    } else if (card.due) {
+      const due = new Date(card.due);
+      if (due.getTime() <= Date.now()) {
+        dueCount++;
       }
     }
+  }
+  if (totalCards > 0) {
+    fm["total_cards"] = totalCards;
     fm["new_cards"] = newCount;
     fm["due_cards"] = dueCount;
   }
 
   fm["tags"] = ["siltflow"];
 
-  return "---\n" + toYAML(fm) + "\n---\n";
+  // `siltflow_imported` must be a bare date so Obsidian types it as Date.
+  return "---\n" + toWordYAML(fm, new Set(["siltflow_imported"])) + "\n---\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -381,7 +392,7 @@ function buildFrontmatter(data: DocumentImportData): string {
 
 function buildSummaryCallout(text: string, aiVersion: number): string {
   const lines: string[] = [];
-  lines.push(`> [!summary]- AI 摘要`);
+  lines.push(`> [!summary]- Summary`);
   if (aiVersion > 0) {
     lines.push(`> <!-- siltflow-ai-version: ${aiVersion} -->`);
   }
@@ -392,63 +403,76 @@ function buildSummaryCallout(text: string, aiVersion: number): string {
   return lines.join("\n");
 }
 
-function buildAnnotationCallout(
+/**
+ * Render one annotation as a card-style callout.
+ *
+ * Layout:
+ *   [!siltflow] word                ← title (fold per calloutFold setting)
+ *   <!-- siltflow-annotation: ID, ai-version: N -->   ← diff anchor
+ *   **翻译**                        ← big translation (first paragraph)
+ *   `en-US` → `zh-CN` · **Page** 359  ← meta line (only present pieces)
+ *   <AI sections: CEFR/Lemma, Meanings, Definitions, Examples, ...>
+ *   **Review**  New · Due 2026-08-02  ← only when FSRS card exists
+ *
+ * Empty sections are omitted at generation time.
+ */
+function buildAnnotationCard(
   ann: AnnotationRow,
-  ai: ParsedAIResult | undefined,
-  aiVersion: number,
+  data: DocumentRenderData,
   options: FormatterOptions,
 ): string {
-  const fold =
-    options.calloutFold === "none"
-      ? ""
-      : options.calloutFold === "collapsed"
-        ? "+"
-        : "-";
-  const titleText = ann.text
-    ? ann.text.replace(/\n/g, " ").slice(0, 60)
-    : ann.type;
-  const parts: string[] = [];
+  const ai = data.aiResults.get(ann.id);
+  const card = data.cards.get(ann.id);
+  const aiVersion = data.aiVersions.get(ann.id) ?? 0;
 
-  parts.push(`> [!${ann.type}]${fold} ${titleText}`);
+  const word =
+    ai?.input?.normalized || ai?.input?.text || ann.text || ann.type || "untitled";
+  const titleText = word.replace(/\n/g, " ").trim().slice(0, 80);
+
+  const fold =
+    options.calloutFold === "collapsed"
+      ? "-"
+      : options.calloutFold === "expanded"
+        ? "+"
+        : "";
+
+  const parts: string[] = [];
+  parts.push(`> [!siltflow]${fold} ${titleText}`);
 
   // Embedded metadata for incremental import
-  const metaParts: string[] = [`siltflow-annotation: ${ann.id}`];
+  const meta: string[] = [`siltflow-annotation: ${ann.id}`];
   if (aiVersion > 0) {
-    metaParts.push(`ai-version: ${aiVersion}`);
+    meta.push(`ai-version: ${aiVersion}`);
   }
-  parts.push(`> <!-- ${metaParts.join(", ")} -->`);
+  parts.push(`> <!-- ${meta.join(", ")} -->`);
 
-  const bodyLines: string[] = [];
+  const body: string[] = [];
 
-  // ── AI header: source/target language ──
-  const langParts: string[] = [];
-  if (ai?.input?.source_lang) langParts.push(`Source: \`${ai.input.source_lang}\``);
-  const targetLang = ai?.target_lang || (ai ? detectTargetLang(ai) : null);
-  if (targetLang) langParts.push(`Target: \`${targetLang}\``);
-
-  if (ann.page_number) {
-    bodyLines.push(`**Page**: ${ann.page_number}`);
-  }
-  if (ann.text) {
-    bodyLines.push(ann.text.replace(/\n/g, "\n> "));
+  // ── Big translation (card's visual anchor) ──
+  const translation = extractAITranslation(ai);
+  if (options.includeAIResults && translation) {
+    body.push(`<span class="card-translation">${escapeInline(translation)}</span>`);
   }
 
-  // ── AI results (matches upstream Siltflow card layout) ──
+  // ── AI detail sections (translation already shown in the header — strip it) ──
   if (options.includeAIResults && ai) {
-    if (langParts.length > 0) {
-      bodyLines.push("");
-      bodyLines.push(langParts.join(" | "));
-    }
-
     const { core, details } = buildAIDetailBlocks(ai, ann.text ?? "");
-
-    // Core content (translation, meta tags, definitions/meanings)
-    bodyLines.push(...core);
-    // Details (examples, collocations, alternatives, synonyms)
-    bodyLines.push(...details);
+    const coreFiltered = core.filter((l) => !l.startsWith("**Translation**"));
+    if (coreFiltered.length > 0 || details.length > 0) {
+      body.push("");
+    }
+    body.push(...coreFiltered, ...details);
   }
 
-  for (const line of bodyLines) {
+  // ── Review block (only when FSRS stats are enabled and a card exists) ──
+  body.push(...buildReviewBlock(card, options.includeFSRSStats));
+
+  // If nothing was rendered (no AI, no card), fall back to the raw text.
+  if (body.length === 0 && ann.text) {
+    body.push(ann.text);
+  }
+
+  for (const line of body) {
     if (line === "") {
       parts.push(">");
     } else {
@@ -458,6 +482,28 @@ function buildAnnotationCallout(
 
   parts.push("");
   return parts.join("\n");
+}
+
+/** FSRS review block for a card. Returns [] when disabled or no card exists. */
+function buildReviewBlock(
+  card: ParsedFSRSCard | undefined,
+  includeFSRSStats: boolean,
+): string[] {
+  if (!includeFSRSStats || !card) return [];
+  const bits: string[] = [`\`${FSRS_STATE_LABEL[card.state] ?? card.state}\``];
+  if (card.due) bits.push(`Due ${formatDateOnly(card.due)}`);
+  if (card.reps > 0) bits.push(`${card.reps} reps`);
+  return [
+    "",
+    `<span class="review-block">**Review** ${bits.join(" · ")}</span>`,
+  ];
+}
+
+const FSRS_STATE_LABEL = ["New", "Learning", "Review", "Relearning"];
+
+/** Reduce an ISO datetime to a bare `YYYY-MM-DD` date. */
+function formatDateOnly(iso: string): string {
+  return iso.slice(0, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -471,27 +517,6 @@ function buildAnnotationCallout(
  * keep bundle size minimal. Only handles strings, numbers, booleans,
  * null, arrays, and flat objects.
  */
-function toYAML(obj: Record<string, unknown>): string {
-  const lines: string[] = [];
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === null || value === undefined) continue;
-    if (Array.isArray(value)) {
-      lines.push(`${key}:`);
-      for (const item of value) {
-        lines.push(`  - ${formatScalar(item)}`);
-      }
-    } else if (typeof value === "object") {
-      lines.push(`${key}:`);
-      for (const [k2, v2] of Object.entries(value as Record<string, unknown>)) {
-        lines.push(`  ${k2}: ${formatScalar(v2)}`);
-      }
-    } else {
-      lines.push(`${key}: ${formatScalar(value)}`);
-    }
-  }
-  return lines.join("\n");
-}
-
 function formatScalar(value: unknown): string {
   if (typeof value === "string") {
     // YAML quoting: quote if contains special chars, starts with quote, or empty
@@ -510,7 +535,53 @@ function formatScalar(value: unknown): string {
   return `"${String(value)}"`;
 }
 
+/**
+ * YAML serializer for word-note frontmatter.
+ *
+ * String values that belong to a `dateKeys` key are emitted **unquoted** so
+ * Obsidian infers the Date type (a quoted date is Text). All other strings
+ * go through `formatScalar` as before.
+ */
+function toWordYAML(
+  obj: Record<string, unknown>,
+  dateKeys: Set<string>,
+): string {
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === null || value === undefined) continue;
+    if (Array.isArray(value)) {
+      lines.push(`${key}:`);
+      for (const item of value) {
+        lines.push(`  - ${formatScalar(item)}`);
+      }
+    } else if (typeof value === "object") {
+      lines.push(`${key}:`);
+      for (const [k2, v2] of Object.entries(value as Record<string, unknown>)) {
+        lines.push(`  ${k2}: ${formatScalar(v2)}`);
+      }
+    } else if (typeof value === "string" && dateKeys.has(key)) {
+      // Emit dates bare so Obsidian types them as Date.
+      lines.push(`${key}: ${value}`);
+    } else {
+      lines.push(`${key}: ${formatScalar(value)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 function escapeYamlValue(value: string): string {
   // Escape characters that would break Markdown or YAML
   return value.replace(/"/g, '\\"');
+}
+
+/**
+ * Escape a raw string for safe embedding inside inline HTML (`<span>`) in
+ * markdown. HTML entities are escaped so the content renders as plain text;
+ * markdown inside the span is still parsed by Obsidian.
+ */
+function escapeInline(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

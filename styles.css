@@ -203,3 +203,40 @@
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Annotation card callouts
+   ═══════════════════════════════════════════════════════════════════
+   Each annotation renders as an Obsidian callout with type `siltflow`.
+   Only border + background are customized; everything else (typography,
+   spacing, colors) uses Obsidian's default callout styling.
+   ──────────────────────────────────────────────────────────────── */
+
+.markdown-rendered > .callout[data-callout="siltflow"] {
+  --siltflow-card-accent: var(--interactive-accent);
+  --siltflow-card-border: color-mix(
+    in srgb,
+    var(--siltflow-card-accent) 30%,
+    var(--background-modifier-border)
+  );
+  --siltflow-card-bg: color-mix(
+    in srgb,
+    var(--siltflow-card-accent) 5%,
+    var(--background-secondary)
+  );
+
+  background: var(--siltflow-card-bg);
+  border: 1px solid var(--siltflow-card-border);
+  border-radius: var(--radius-m);
+  border-left: 3px solid var(--siltflow-card-accent);
+}
+
+/* ── Summary callout ───────────────────────────────────────────── */
+
+.markdown-rendered > .callout[data-callout="summary"] {
+  background: color-mix(in srgb, var(--color-yellow) 8%, var(--background-secondary));
+  border: 1px solid color-mix(in srgb, var(--color-yellow) 40%, var(--background-modifier-border));
+  border-left: 3px solid var(--color-yellow);
+  border-radius: var(--radius-m);
+}
+
