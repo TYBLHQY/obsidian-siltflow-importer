@@ -1,97 +1,50 @@
 # Siltflow Importer
 
-Import your [Siltflow](https://github.com/TYBLHQY/siltflow) language learning data into Obsidian as Markdown notes.
+把 [Siltflow](https://github.com/TYBLHQY/siltflow) 的语言学习数据导入 Obsidian，生成带双语 AI 标注卡片的 Markdown 笔记。
 
-## Features
+## 功能
 
-- **One-click import** — run the "Import Siltflow database" command or click the ribbon icon to sync all documents from your Siltflow SQLite database
-- **Bilingual annotation cards** — each annotation renders as a callout card with the AI translation and sections (CEFR & Lemma, Meanings, Definitions, Examples, Collocations, Synonyms)
-- **Incremental sync** — add/change/delete detection based on each annotation's `updated_at`; unchanged documents are skipped
-- **Granular type filters** — import only words, phrases, or sentences as you prefer
-- **Structured output** — YAML frontmatter + AI summary callout + one card per annotation, all in plain Markdown
+- **一键导入** — 点击侧边栏图标或运行命令，同步 Siltflow SQLite 数据库中的全部文档
+- **双语标注卡片** — 每条标注渲染为 callout 卡片，含 AI 翻译与释义分区（CEFR & Lemma、Meanings、Definitions、Examples、Collocations、Synonyms）
+- **增量同步** — 按 `updated_at` 自动增/改/删已导入的标注，未变化的文档自动跳过
+- **类型筛选** — 只导入单词、短语或句子
+- **结构化输出** — YAML frontmatter + AI 摘要 + 每条标注一张卡片，全部为纯 Markdown
 
-## Usage
+## 使用
 
-1. Open Obsidian Settings → **Siltflow Importer**
-2. Set the path to your Siltflow `data.db` file
-3. Set the output folder inside your vault
-4. Click the ribbon icon (or run "Import Siltflow database") and confirm
-5. The sync imports every document; a notice reports created / updated / skipped counts
+1. 打开 Obsidian 设置 → **Siltflow Importer**
+2. 设置 Siltflow `data.db` 文件的路径
+3. 设置 vault 内的输出目录
+4. 点击侧边栏图标（或运行 "Import Siltflow database" 命令）并确认
 
-The import mode (sync vs full overwrite) and per-type toggles are configured in the plugin settings.
+每次导入完成后，右下角会提示新增 / 更新 / 跳过的文档数。导入模式（同步 / 覆盖）与类型开关均可在设置中调整。
 
-## Output
+## 输出
 
-Each Siltflow document becomes one `.md` file:
+每个文档生成一个 `.md` 文件：YAML frontmatter（来源、页码、标签）→ 标题 → AI 摘要 → `## Annotations` 下按标注顺序排列的卡片。增量同步的状态文件存放在输出目录的 `_meta/` 下，自动管理，无需手动维护。
 
-```markdown
----
-siltflow_doc_id: "abc123"
-siltflow_source: "article.pdf"
-siltflow_imported: 2026-08-01
-siltflow_ai_version: 2
-pages: 12
-tags:
-  - siltflow
----
+## 安装
 
-# Article Title
+- **社区市场**：Obsidian 设置 → 社区插件 → 浏览，搜索 "Siltflow Importer"。
+- **手动安装**：从 GitHub Releases 下载 `main.js`、`manifest.json`、`styles.css`，放入 `.obsidian/plugins/siltflow-importer/`，然后在设置中启用。
 
-> [!summary]- Summary
-> The article discusses...
+## 要求
 
----
+- Obsidian 1.13.0+（桌面版）
+- 一个 Siltflow vault 及其 `data.db`
 
-## Annotations
+## 隐私
 
-> [!siltflow]- virtue
-> <!-- siltflow-annotation: fd91bb30..., ai-version: 2 -->
->
-> **美德**
->
-> **CEFR & Lemma**
-> `B2` `virtue`
->
-> **Meanings**
-> - `NOUN` 美德
->
-> **Examples**
-> - Honesty is a virtue. / 诚实是一种美德。
-```
+- 插件通过 Node.js `fs` 直接读取你配置路径下的 Siltflow SQLite 数据库（位于 vault 之外），并将生成的 Markdown 写入 vault。
+- 全程本地运行——不上传任何数据，无网络请求，无遥测。
 
-The `_meta/` folder holds the sync state:
-- `_siltflow_import.json` — index format version + last import info
-- `documents.jsonl` — one line per imported document
-- `anns/<doc>.jsonl` — one line per annotation with its `importedAt` timestamp
-
-These are managed automatically — don't edit them by hand.
-
-## Requirements
-
-- Obsidian 1.13.0+ (desktop)
-- A Siltflow vault with its `data.db`
-- Desktop only — the plugin reads the database via Node.js and uses the native file picker
-
-## Privacy & permissions
-
-- **Direct filesystem access**: the plugin uses Node.js `fs` to read the Siltflow
-  SQLite database at the path you configure (it lives outside your vault), then
-  writes the generated Markdown into your vault via the Obsidian vault API.
-  No other files are read or written.
-- **Everything stays local** — nothing is uploaded, no network requests, no telemetry.
-
-## Install
-
-From source:
+## 开发
 
 ```bash
 npm install
-npm run build
+npm run build   # 构建到 main.js
+npm run dev     # 监听模式
 ```
-
-Copy `main.js`, `manifest.json`, `styles.css`, `sql-wasm.wasm`, and `sql-wasm.js` into `.obsidian/plugins/siltflow-importer/`, then enable the plugin in Obsidian.
-
-Releases on GitHub include all five files, so the community installer works out of the box.
 
 ## License
 
