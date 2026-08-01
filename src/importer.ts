@@ -69,10 +69,10 @@ export function validateImportConfig(
   outputFolder: string,
 ): void {
   if (!dbPath || !dbPath.trim()) {
-    throw new Error("⚠️ Siltflow 数据库位置未配置。请先在设置中填写 data.db 路径。");
+    throw new Error("⚠️ 数据库文件未配置。请在设置中填写 data.db 路径。");
   }
   if (!outputFolder || !outputFolder.trim()) {
-    throw new Error("⚠️ Obsidian 输出目录未配置。请先在设置中填写输出文件夹。");
+    throw new Error("⚠️ 输出目录未配置。请在设置中填写输出目录。");
   }
   const folder = outputFolder.trim();
   if (
@@ -83,7 +83,7 @@ export function validateImportConfig(
     /[\x00-\x1f\x7f]/.test(folder)
   ) {
     throw new Error(
-      "⚠️ 输出目录无效：必须是 vault 内的相对路径（不能是绝对路径、含 .. 或非法字符）。",
+      "⚠️ 输出目录无效：须为 vault 内相对路径（不允许绝对路径、.. 或非法字符）。",
     );
   }
 }

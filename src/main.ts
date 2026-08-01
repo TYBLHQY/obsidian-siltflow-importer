@@ -66,7 +66,7 @@ export default class SiltflowImporterPlugin extends Plugin {
         if (picked) {
           this.settings.siltflowDbPath = picked;
           await this.saveSettings();
-          new Notice("✅ Siltflow 数据库已切换");
+          new Notice("✅ 数据库文件已更新");
         }
       },
     });
@@ -147,7 +147,7 @@ export default class SiltflowImporterPlugin extends Plugin {
       );
     } catch (err) {
       new Notice(
-        `❌ ${err instanceof Error ? err.message : String(err)}`,
+        `❌ 导入失败：${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -163,7 +163,7 @@ export default class SiltflowImporterPlugin extends Plugin {
       ) as { remote: { dialog: { showOpenDialog: (opts: Record<string, unknown>) => Promise<{ canceled: boolean; filePaths: string[] }> } } };
       const { dialog } = remote.remote;
       const result = await dialog.showOpenDialog({
-        title: "Select Siltflow database",
+        title: "选择 Siltflow 数据库",
         filters: [
           { name: "SQLite Database", extensions: ["db"] },
           { name: "All Files", extensions: ["*"] },
@@ -177,7 +177,7 @@ export default class SiltflowImporterPlugin extends Plugin {
       return result.filePaths[0];
     } catch {
       new Notice(
-        "⚠️ File picker requires Electron (desktop-only). Set the path in settings manually.",
+        "⚠️ 无法打开文件选择器（仅桌面版支持）。请在设置中手动填写数据库路径。",
       );
       return null;
     }
@@ -217,7 +217,7 @@ class ImportConfirmModal extends Modal {
     titleEl.setText("导入 Siltflow 数据库");
 
     contentEl.createDiv().setText(
-      "将按当前设置同步导入全部文档（新增 / 更新 / 删除已导入标注）。",
+      "将按当前设置同步导入全部文档。",
     );
 
     // Path list
@@ -225,15 +225,16 @@ class ImportConfirmModal extends Modal {
     const label = (text: string) => paths.createDiv().createEl("strong", { text });
     const path = (text: string) =>
       paths.createDiv("siltflow-confirm-path").setText(text);
-    label("数据库：");
+    label("数据库");
     path(this.dbPath);
     paths.createDiv({ attr: { style: "height: 8px" } });
-    label("输出目录：");
+    label("输出目录");
     path(this.outFolder);
 
     // "Don't ask again" checkbox
     new Setting(contentEl)
-      .setName("以后不再询问，直接导入")
+      .setName("以后不再询问")
+      .setDesc("下次点击按钮或命令时直接导入。")
       .addToggle((toggle) =>
         toggle.onChange((value) => {
           this.skipNextTime = value;

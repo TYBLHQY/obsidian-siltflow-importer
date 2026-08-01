@@ -59,11 +59,11 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
 
     // ── Path section ────────────────────────────────────────────
 
-    containerEl.createEl("h3", { text: "路径配置" });
+    containerEl.createEl("h3", { text: "路径" });
 
     new Setting(containerEl)
-      .setName("Siltflow 数据库位置")
-      .setDesc("Siltflow vault 中的 data.db 文件路径。设置后每次导入无需重复选择。")
+      .setName("数据库文件")
+      .setDesc("Siltflow 的 data.db 路径。")
       .addText((text) =>
         text
           .setPlaceholder("~/Siltflow/.siltflow/data.db")
@@ -75,8 +75,8 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Obsidian 内输出目录")
-      .setDesc("导入的 Markdown 文件将保存在此目录下（相对于 vault 根目录）。")
+      .setName("输出目录")
+      .setDesc("导入笔记的存放位置（vault 内相对路径）。")
       .addText((text) =>
         text
           .setPlaceholder("Siltflow")
@@ -87,22 +87,22 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
           }),
       );
 
-    // ── V2 granularity filters ───────────────────────────────────
+    // ── Content section ─────────────────────────────────────────
 
-    containerEl.createEl("h4", { text: "V2 标注类型" });
+    containerEl.createEl("h3", { text: "内容" });
 
     const typeToggles: Array<{
       key: "word" | "phrase" | "sentence";
       label: string;
       desc: string;
     }> = [
-      { key: "word", label: "包含单词", desc: "词条类标注（如 virtue）。" },
-      { key: "phrase", label: "包含短语", desc: "短语类标注（如 to be sure）。" },
-      { key: "sentence", label: "包含句子", desc: "句子类标注。" },
+      { key: "word", label: "单词", desc: "词条类标注（如 virtue）。" },
+      { key: "phrase", label: "短语", desc: "短语类标注（如 to be sure）。" },
+      { key: "sentence", label: "句子", desc: "句子类标注。" },
     ];
     for (const t of typeToggles) {
       new Setting(containerEl)
-        .setName(t.label)
+        .setName(`导入${t.label}`)
         .setDesc(t.desc)
         .addToggle((toggle) =>
           toggle
@@ -114,19 +114,17 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
         );
     }
 
-    // ── Import strategy section ─────────────────────────────────
+    // ── Import section ──────────────────────────────────────────
 
-    containerEl.createEl("h3", { text: "导入策略" });
+    containerEl.createEl("h3", { text: "导入" });
 
     new Setting(containerEl)
       .setName("导入模式")
-      .setDesc(
-        "同步：增/改/删已导入标注（按 updated_at 比对）。覆盖：删除全部重新导入。",
-      )
+      .setDesc("同步：按 updated_at 增/改/删已导入标注。覆盖：重建全部笔记。")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("update", "同步导入")
-          .addOption("overwrite", "全量覆盖")
+          .addOption("update", "同步")
+          .addOption("overwrite", "覆盖")
           .setValue(this.plugin.settings.incrementalMode)
           .onChange(async (value) => {
             this.plugin.settings.incrementalMode = value as
@@ -137,12 +135,12 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("标注卡片折叠状态")
-      .setDesc("默认折叠：卡片收起。默认展开：卡片展开。不可折叠：无折叠按钮。")
+      .setName("卡片折叠")
+      .setDesc("标注卡片的默认折叠状态。")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("expanded", "默认展开")
-          .addOption("collapsed", "默认折叠")
+          .addOption("expanded", "展开")
+          .addOption("collapsed", "折叠")
           .addOption("none", "不可折叠")
           .setValue(this.plugin.settings.calloutFold)
           .onChange(async (value) => {
@@ -155,8 +153,8 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
       )
       .addButton((button) =>
         button
-          .setButtonText("同步已导入")
-          .setTooltip("把已导入笔记的卡片折叠状态改写为当前设置")
+          .setButtonText("同步已导入笔记")
+          .setTooltip("将已导入笔记的卡片折叠状态改写为当前设置")
           .onClick(async () => {
             const n = await syncCalloutFolds(
               this.app.vault,
@@ -169,7 +167,7 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("跳过导入确认")
-      .setDesc("开启后点击 ribbon 或运行导入命令时不再弹出确认框，直接开始同步导入。")
+      .setDesc("开启后点击侧边栏按钮或命令直接导入，不再弹出确认框。")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.skipImportConfirm)
