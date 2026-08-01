@@ -102,18 +102,16 @@ export async function importDatabase(
       annotationsByDoc.set(ann.document_id, arr);
     }
 
-    // 4. Filter documents
+    // 4. Filter documents — only import docs that have at least one annotation
     let docsToImport = documents;
     if (selectedDocIds.length > 0) {
       const idSet = new Set(selectedDocIds);
       docsToImport = documents.filter((d) => idSet.has(d.id));
     }
-    if (!settings.includeDocumentsWithoutAnnotations) {
-      docsToImport = docsToImport.filter((d) => {
-        const docAnnotations = annotationsByDoc.get(d.id) || [];
-        return docAnnotations.length > 0;
-      });
-    }
+    docsToImport = docsToImport.filter((d) => {
+      const docAnnotations = annotationsByDoc.get(d.id) || [];
+      return docAnnotations.length > 0;
+    });
 
     // 5. Load import index
     const index = await loadImportIndex(vault, settings.outputFolder);
@@ -133,7 +131,7 @@ export async function importDatabase(
           (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
         )
         .filter((a) =>
-          includeAnnotationByType(
+          includeAnnotation(
             a,
             aiResultMap.get(doc.id)?.get(a.id),
             settings.includeTypes,
@@ -265,14 +263,19 @@ function computeSafeDocSlugs(docs: DocumentRow[]): Map<string, string> {
 }
 
 /**
- * Only V2-typed annotations (with an explicit `ai.input.type`) are gated;
- * annotations without a V2 type (no AI result, or V1 data) are always kept.
+ * Whether an annotation should be imported.
+ * - `highlight`-kind annotations are raw PDF marks with no AI data — dropped.
+ * - V2-typed annotations (explicit `ai.input.type`) are gated by the
+ *   per-type toggles; annotations without a V2 type (no AI result, or V1
+ *   data) are always kept.
  */
-function includeAnnotationByType(
+function includeAnnotation(
   ann: AnnotationRow,
   ai: ParsedAIResult | undefined,
   includeTypes: { word: boolean; phrase: boolean; sentence: boolean },
 ): boolean {
+  // Pure PDF highlights carry no translation/AI — filter them out.
+  if (ann.kind === "highlight") return false;
   const type = v2Granularity(ai);
   if (!type) return true;
   return includeTypes[type];

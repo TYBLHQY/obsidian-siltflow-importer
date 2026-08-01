@@ -26,8 +26,6 @@ export interface SiltflowImporterSettings {
     phrase: boolean;
     sentence: boolean;
   };
-  /** Import documents that have zero annotations. */
-  includeDocumentsWithoutAnnotations: boolean;
 }
 
 export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
@@ -41,7 +39,6 @@ export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
     phrase: true,
     sentence: true,
   },
-  includeDocumentsWithoutAnnotations: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -185,22 +182,6 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
               this.plugin.settings.calloutFold,
             );
             new Notice(`✅ 已同步 ${n} 篇笔记的折叠状态`);
-          }),
-      );
-
-    // ── Filter section ──────────────────────────────────────────
-
-    containerEl.createEl("h3", { text: "过滤" });
-
-    new Setting(containerEl)
-      .setName("导入无标注的文档")
-      .setDesc("关闭则只导入至少有一条标注的文档。")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.includeDocumentsWithoutAnnotations)
-          .onChange(async (value) => {
-            this.plugin.settings.includeDocumentsWithoutAnnotations = value;
-            await this.plugin.saveSettings();
           }),
       );
   }
