@@ -28,9 +28,7 @@ import type {
   AnnotationRow,
   AIResultRow,
   SummaryRow,
-  FSRSCardRow,
   ParsedAIResult,
-  ParsedFSRSCard,
   DocumentRenderData,
   ImportIndex,
 } from "./types";
@@ -72,7 +70,6 @@ export async function importDatabase(
     );
     const aiResults = queryAll<AIResultRow>(db, "SELECT * FROM ai_results");
     const summaries = queryAll<SummaryRow>(db, "SELECT * FROM summaries");
-    const fsrsCards = queryAll<FSRSCardRow>(db, "SELECT * FROM fsrs_cards");
 
     // 2. Build lookup maps
     const aiResultMap = new Map<string, Map<string, ParsedAIResult>>();
@@ -97,13 +94,6 @@ export async function importDatabase(
       summaryMap.set(s.document_id, s);
     }
 
-    const cardsMap = new Map<string, FSRSCardRow[]>();
-    for (const c of fsrsCards) {
-      const arr = cardsMap.get(c.document_id) || [];
-      arr.push(c);
-      cardsMap.set(c.document_id, arr);
-    }
-
     // 3. Group annotations by document (must precede doc filtering)
     const annotationsByDoc = new Map<string, AnnotationRow[]>();
     for (const ann of annotations) {
@@ -121,8 +111,7 @@ export async function importDatabase(
     if (!settings.includeDocumentsWithoutAnnotations) {
       docsToImport = docsToImport.filter((d) => {
         const docAnnotations = annotationsByDoc.get(d.id) || [];
-        const docCards = cardsMap.get(d.id) || [];
-        return docAnnotations.length > 0 || docCards.length > 0;
+        return docAnnotations.length > 0;
       });
     }
 
@@ -164,20 +153,15 @@ export async function importDatabase(
         aiVersions: new Map(
           docAnnotations.map((a) => [a.id, aiVersions.get(a.id) ?? 0]),
         ),
-        cards: new Map(
-          docAnnotations.map((a) => [a.id, parseCard(cardsMap.get(doc.id)?.find((c) => c.annotation_id === a.id))]),
-        ),
         aiVersion: getMaxAIVersion(aiVersions),
         summary: summaryMap.get(doc.id) || null,
         notePath,
-        includeFSRSStats: settings.includeFSRSStats,
       };
 
       await ensureFolderExists(vault, settings.outputFolder);
 
       const options: FormatterOptions = {
         includeAIResults: settings.includeAIResults,
-        includeFSRSStats: settings.includeFSRSStats,
         calloutFold: settings.calloutFold,
       };
 
@@ -231,7 +215,6 @@ export async function importDatabase(
       for (const ann of docAnnotations) {
         annotationsIndex[ann.id] = {
           aiVersion: aiVersions.get(ann.id) ?? 0,
-          cardDue: data.cards.get(ann.id)?.due ?? null,
         };
       }
       index.documents[doc.id] = {
@@ -281,23 +264,7 @@ function computeSafeDocSlugs(docs: DocumentRow[]): Map<string, string> {
   return map;
 }
 
-/** Parse an FSRS card row into the fields we expose. */
-function parseCard(card: FSRSCardRow | undefined): ParsedFSRSCard | undefined {
-  if (!card) return undefined;
-  try {
-    const raw = JSON.parse(card.data);
-    return {
-      state: raw.state ?? 0,
-      due: raw.due ?? null,
-      reps: raw.reps ?? 0,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
 /**
- * Whether an annotation should be imported given the per-type toggles.
  * Only V2-typed annotations (with an explicit `ai.input.type`) are gated;
  * annotations without a V2 type (no AI result, or V1 data) are always kept.
  */

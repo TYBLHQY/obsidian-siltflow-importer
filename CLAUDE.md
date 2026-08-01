@@ -51,19 +51,19 @@ main.ts (Plugin.onload: ribbon + commands)
 ## Output format
 
 One `.md` file per document (single-file layout — no `words/` subfolder, no `.base` dashboard):
-1. YAML frontmatter (`siltflow_doc_id`, `siltflow_source`, `pages`, `total_cards`, `new_cards`, `due_cards`, `tags: [siltflow]`)
+1. YAML frontmatter (`siltflow_doc_id`, `siltflow_source`, `pages`, `tags: [siltflow]`)
 2. `# Title`
 3. AI summary callout (if present)
 4. `## Annotations` → one card-style callout (`> [!siltflow]`) per annotation:
-   - title = word/phrase; body = big translation, meta line (`en-US → zh-CN` · Page), then AI sections (CEFR & Lemma, Meanings, Definitions, Examples, Collocations, Synonyms) and an FSRS Review block
+   - title = word/phrase; body = big translation, then AI sections (CEFR & Lemma, Meanings, Definitions, Examples, Collocations, Synonyms)
    - sections are emitted only when they have content; empty fields never appear
    - each callout embeds `<!-- siltflow-annotation: ID, ai-version: N -->` for incremental diffing
-   - semantic `<span class="...">` wrappers (`card-translation`, `language-meta`, `review-block`) let `styles.css` style the cards reliably — Obsidian parses markdown inside these inline spans
+   - semantic `<span class="...">` wrappers (`card-translation`) let `styles.css` style the cards reliably — Obsidian parses markdown inside these inline spans
 
 ## Settings
 
 - `calloutFold`: `"expanded"` | `"collapsed"` | `"none"` — controls annotation callout folding
 - `includeAIResults`: toggle AI translations/explanations in callouts
-- `includeFSRSStats`: include the FSRS Review block in each card + frontmatter stats
+- `includeTypes`: per-granularity toggles for V2 annotations (`word` / `phrase` / `sentence`)
 - `incrementalMode`: `"append"` | `"update"` | `"overwrite"`
-- `includeDocumentsWithoutAnnotations`: skip docs with zero annotations/cards
+- `includeDocumentsWithoutAnnotations`: skip docs with zero annotations

@@ -13,7 +13,6 @@ import type {
   DocumentRenderData,
   AnnotationRow,
   ParsedAIResult,
-  ParsedFSRSCard,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -344,7 +343,6 @@ export function buildMarkdownNote(
 
 export interface FormatterOptions {
   includeAIResults: boolean;
-  includeFSRSStats: boolean;
   /** Controls the fold marker on each annotation callout. */
   calloutFold: "expanded" | "collapsed" | "none";
 }
@@ -374,28 +372,6 @@ function buildFrontmatter(data: DocumentRenderData): string {
     siltflow_ai_version: data.aiVersion || 0,
     pages: data.doc.total_pages ?? null,
   };
-
-  // Count FSRS card states (only annotations that actually have a card)
-  let totalCards = 0;
-  let newCount = 0;
-  let dueCount = 0;
-  for (const card of data.cards.values()) {
-    if (!card) continue;
-    totalCards++;
-    if (card.state === 0) {
-      newCount++;
-    } else if (card.due) {
-      const due = new Date(card.due);
-      if (due.getTime() <= Date.now()) {
-        dueCount++;
-      }
-    }
-  }
-  if (totalCards > 0) {
-    fm["total_cards"] = totalCards;
-    fm["new_cards"] = newCount;
-    fm["due_cards"] = dueCount;
-  }
 
   fm["tags"] = ["siltflow"];
 
@@ -427,9 +403,7 @@ function buildSummaryCallout(text: string, aiVersion: number): string {
  *   [!siltflow] word                ← title (fold per calloutFold setting)
  *   <!-- siltflow-annotation: ID, ai-version: N -->   ← diff anchor
  *   **翻译**                        ← big translation (first paragraph)
- *   `en-US` → `zh-CN` · **Page** 359  ← meta line (only present pieces)
  *   <AI sections: CEFR/Lemma, Meanings, Definitions, Examples, ...>
- *   **Review**  New · Due 2026-08-02  ← only when FSRS card exists
  *
  * Empty sections are omitted at generation time.
  */
@@ -439,7 +413,6 @@ function buildAnnotationCard(
   options: FormatterOptions,
 ): string {
   const ai = data.aiResults.get(ann.id);
-  const card = data.cards.get(ann.id);
   const aiVersion = data.aiVersions.get(ann.id) ?? 0;
 
   const word =
@@ -481,10 +454,7 @@ function buildAnnotationCard(
     body.push(...coreFiltered, ...details);
   }
 
-  // ── Review block (only when FSRS stats are enabled and a card exists) ──
-  body.push(...buildReviewBlock(card, options.includeFSRSStats));
-
-  // If nothing was rendered (no AI, no card), fall back to the raw text.
+  // If nothing was rendered (no AI), fall back to the raw text.
   if (body.length === 0 && ann.text) {
     body.push(ann.text);
   }
@@ -499,28 +469,6 @@ function buildAnnotationCard(
 
   parts.push("");
   return parts.join("\n");
-}
-
-/** FSRS review block for a card. Returns [] when disabled or no card exists. */
-function buildReviewBlock(
-  card: ParsedFSRSCard | undefined,
-  includeFSRSStats: boolean,
-): string[] {
-  if (!includeFSRSStats || !card) return [];
-  const bits: string[] = [`\`${FSRS_STATE_LABEL[card.state] ?? card.state}\``];
-  if (card.due) bits.push(`Due ${formatDateOnly(card.due)}`);
-  if (card.reps > 0) bits.push(`${card.reps} reps`);
-  return [
-    "",
-    `<span class="review-block">**Review** ${bits.join(" · ")}</span>`,
-  ];
-}
-
-const FSRS_STATE_LABEL = ["New", "Learning", "Review", "Relearning"];
-
-/** Reduce an ISO datetime to a bare `YYYY-MM-DD` date. */
-function formatDateOnly(iso: string): string {
-  return iso.slice(0, 10);
 }
 
 // ---------------------------------------------------------------------------

@@ -16,8 +16,6 @@ export interface SiltflowImporterSettings {
   outputFolder: string;
   /** Include AI translations and explanations in output. */
   includeAIResults: boolean;
-  /** Include FSRS card stats (total/new/due) in frontmatter. */
-  includeFSRSStats: boolean;
   /** Incremental import mode. */
   incrementalMode: "append" | "update" | "overwrite";
   /** Fold state of each annotation callout in the note. */
@@ -36,7 +34,6 @@ export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
   siltflowDbPath: "",
   outputFolder: "Siltflow",
   includeAIResults: true,
-  includeFSRSStats: true,
   incrementalMode: "append",
   calloutFold: "collapsed",
   includeTypes: {
@@ -105,18 +102,6 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.includeAIResults)
           .onChange(async (value) => {
             this.plugin.settings.includeAIResults = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("包含 FSRS 统计")
-      .setDesc("在 frontmatter 中写入 total_cards / new_cards / due_cards。")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.includeFSRSStats)
-          .onChange(async (value) => {
-            this.plugin.settings.includeFSRSStats = value;
             await this.plugin.saveSettings();
           }),
       );
@@ -209,7 +194,7 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("导入无标注的文档")
-      .setDesc("关闭则只导入至少有一条标注或 FSRS 卡片的文档。")
+      .setDesc("关闭则只导入至少有一条标注的文档。")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.includeDocumentsWithoutAnnotations)

@@ -47,14 +47,6 @@ export interface SummaryRow {
   updated_at: string;
 }
 
-export interface FSRSCardRow {
-  annotation_id: string;
-  document_id: string;
-  data: string; // serialized JSON — ts-fsrs Card object
-  created_at: string;
-  updated_at: string;
-}
-
 export interface FolderRow {
   id: string;
   name: string;
@@ -151,16 +143,6 @@ export interface ParsedAIResult {
   [key: string]: unknown;
 }
 
-/** Parsed FSRS card state (subset of the ts-fsrs Card fields we care about). */
-export interface ParsedFSRSCard {
-  /** 0 = New, 1 = Learning, 2 = Review, 3 = Relearning. */
-  state: number;
-  /** ISO datetime of the next review (or null if not set). */
-  due: string | null;
-  /** Number of times reviewed. */
-  reps: number;
-}
-
 /**
  * Input to buildMarkdownNote — one document with everything needed to render
  * a single Markdown note containing all of its annotation callout cards.
@@ -173,16 +155,12 @@ export interface DocumentRenderData {
   aiResults: Map<string, ParsedAIResult | undefined>;
   /** AI schema version per annotation ID (0 if none). */
   aiVersions: Map<string, number>;
-  /** Parsed FSRS card per annotation ID, or undefined. */
-  cards: Map<string, ParsedFSRSCard | undefined>;
   /** Max AI schema version across the document's annotations (0 if none). */
   aiVersion: number;
   /** Document AI summary, or null. */
   summary: SummaryRow | null;
   /** Vault-relative path of this document's output note. */
   notePath: string;
-  /** Whether to include FSRS state/due/reps in the frontmatter. */
-  includeFSRSStats: boolean;
 }
 
 /** The index file tracking all past imports. */
@@ -202,8 +180,6 @@ export interface ImportIndex {
         {
           /** AI schema version at last write (for update-mode detection). */
           aiVersion: number;
-          /** FSRS due date (ISO) at last write, or null. */
-          cardDue: string | null;
         }
       >;
       lastSync: string;
