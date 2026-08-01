@@ -1,26 +1,26 @@
 # Siltflow Importer
 
-Import your [Siltflow](https://github.com/TYBLHQY/siltflow) language learning data into Obsidian as structured Markdown notes.
+Import your [Siltflow](https://github.com/TYBLHQY/siltflow) language learning data into Obsidian as Markdown notes.
 
 ## Features
 
-- **One-click import** — read Siltflow's SQLite database and convert to `.md` files
-- **Bilingual annotations** — original text + AI translation + explanations in Obsidian callouts
-- **Incremental import** — only add new annotations, never overwrite your edits
-- **Auto-generated Base dashboard** — browse, filter, sort all imported documents via Obsidian Bases
-- **Selective import** — pick which documents to import with a checkbox modal
-- **AI version tracking** — annotations track AI schema version for future upgrades
+- **One-click import** — run the "Import Siltflow database" command or click the ribbon icon to sync all documents from your Siltflow SQLite database
+- **Bilingual annotation cards** — each annotation renders as a callout card with the AI translation and sections (CEFR & Lemma, Meanings, Definitions, Examples, Collocations, Synonyms)
+- **Incremental sync** — add/change/delete detection based on each annotation's `updated_at`; unchanged documents are skipped
+- **Granular type filters** — import only words, phrases, or sentences as you prefer
+- **Structured output** — YAML frontmatter + AI summary callout + one card per annotation, all in plain Markdown
 
 ## Usage
 
-1. Open the Obsidian Settings → Siltflow Importer
-2. Set the path to your Siltflow `data.db` file (usually at `<vault>/.siltflow/data.db`)
-3. Set the output folder inside your Obsidian vault
-4. Run "Import Siltflow database" from the command palette or click the ribbon icon
-5. Pick which documents to import, choose incremental mode, and import
-6. Open `_Siltflow.base` in the output folder to browse your data as a database
+1. Open Obsidian Settings → **Siltflow Importer**
+2. Set the path to your Siltflow `data.db` file
+3. Set the output folder inside your vault
+4. Click the ribbon icon (or run "Import Siltflow database") and confirm
+5. The sync imports every document; a notice reports created / updated / skipped counts
 
-## Output Format
+The import mode (sync vs full overwrite) and per-type toggles are configured in the plugin settings.
+
+## Output
 
 Each Siltflow document becomes one `.md` file:
 
@@ -28,31 +28,65 @@ Each Siltflow document becomes one `.md` file:
 ---
 siltflow_doc_id: "abc123"
 siltflow_source: "article.pdf"
-siltflow_ai_version: 1
+siltflow_imported: 2026-08-01
+siltflow_ai_version: 2
 pages: 12
-total_cards: 5
+tags:
+  - siltflow
 ---
 
 # Article Title
 
-> [!summary]- AI Summary
+> [!summary]- Summary
 > The article discusses...
 
 ---
 
 ## Annotations
 
-> [!highlight]+ Page 3
-> **原文**: Original text here
+> [!siltflow]- virtue
+> <!-- siltflow-annotation: fd91bb30..., ai-version: 2 -->
 >
-> **翻译**: Translation here
+> **美德**
 >
-> **解释**: Explanations...
-
+> **CEFR & Lemma**
+> `B2` `virtue`
+>
+> **Meanings**
+> - `NOUN` 美德
+>
+> **Examples**
+> - Honesty is a virtue. / 诚实是一种美德。
 ```
+
+The `_meta/` folder holds the sync state:
+- `_siltflow_import.json` — index format version + last import info
+- `documents.jsonl` — one line per imported document
+- `anns/<doc>.jsonl` — one line per annotation with its `importedAt` timestamp
+
+These are managed automatically — don't edit them by hand.
 
 ## Requirements
 
-- Obsidian 1.9.0+ (for Bases support)
-- A Siltflow vault with `data.db`
-- Desktop only (uses Node.js `fs` for file reading)
+- Obsidian 1.5.0+ (desktop)
+- A Siltflow vault with its `data.db`
+- Desktop only — the plugin reads the database via Node.js and uses the native file picker
+
+> **Privacy**: the plugin reads the Siltflow database you point it at (which may live outside your vault) and writes Markdown into your vault. Everything stays local — nothing is uploaded.
+
+## Install
+
+From source:
+
+```bash
+pnpm install
+pnpm build
+```
+
+Copy `main.js`, `manifest.json`, `styles.css`, `sql-wasm.wasm`, and `sql-wasm.js` into `.obsidian/plugins/siltflow-importer/`, then enable the plugin in Obsidian.
+
+Releases on GitHub include all five files, so the community installer works out of the box.
+
+## License
+
+MIT

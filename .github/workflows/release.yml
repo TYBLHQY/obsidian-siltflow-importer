@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        id: build
+        run: npm run build
+
+      # sql.js needs its WASM + loader in the plugin directory at runtime.
+      # The community downloader installs every asset from the release, so
+      # shipping them alongside main.js / manifest.json / styles.css works.
+      - name: Package assets
+        run: |
+          mkdir -p release
+          cp main.js manifest.json styles.css release/
+          cp sql-wasm.wasm sql-wasm.js release/
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/main.js
+            release/manifest.json
+            release/styles.css
+            release/sql-wasm.wasm
+            release/sql-wasm.js
