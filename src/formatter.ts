@@ -218,13 +218,16 @@ function buildV2WordBlocks(
   if (output.cefr) tags.push(`\`${output.cefr}\``);
   if (ai.input?.lemma) tags.push(`\`${ai.input.lemma}\``);
   if (tags.length > 0) {
-    core.push(`**CEFR & Lemma**  \n${tags.join(" ")}`);
+    core.push("**CEFR & Lemma**");
+    core.push("");
+    core.push(tags.join(" "));
   }
 
   // ── Meanings (core) — ordered by frequency ──
   if (output.meanings && output.meanings.length > 0) {
     core.push("");
     core.push("**Meanings**");
+    core.push("");
     for (const m of output.meanings) {
       core.push(`- \`${m.pos}\` ${m.translation}`);
     }
@@ -232,7 +235,9 @@ function buildV2WordBlocks(
 
   // ── Definitions (details) ──
   if (output.definitions && output.definitions.length > 0) {
+    details.push("");
     details.push("**Definitions**");
+    details.push("");
     for (const d of output.definitions) {
       details.push(`- \`${d.pos}\` ${d.definition.source}`);
       details.push(`  ${d.definition.target}`);
@@ -243,6 +248,7 @@ function buildV2WordBlocks(
   if (output.examples && output.examples.length > 0) {
     details.push("");
     details.push("**Examples**");
+    details.push("");
     for (const ex of output.examples) {
       details.push(`- ${ex.sentence}`);
       if (ex.translation) details.push(`  ${ex.translation}`);
@@ -253,15 +259,18 @@ function buildV2WordBlocks(
   if (output.collocations && output.collocations.length > 0) {
     details.push("");
     details.push("**Collocations**");
+    details.push("");
     for (const c of output.collocations) {
-      details.push(`- **${c.phrase}** ${c.translation}`);
+      details.push(`- ${c.phrase} ${c.translation}`);
     }
   }
 
   // ── Synonyms (details) ──
   if (output.synonyms && output.synonyms.length > 0) {
     details.push("");
-    details.push(`**Synonyms**  \n${output.synonyms.join(", ")}`);
+    details.push("**Synonyms**");
+    details.push("");
+    details.push(output.synonyms.join(", "));
   }
 
   return { core, details };
@@ -280,6 +289,7 @@ function buildV2PhraseBlocks(
 
   // ── Examples (details) ──
   if (output.examples && output.examples.length > 0) {
+    details.push("");
     details.push("**Examples**");
     for (const ex of output.examples) {
       details.push(`- ${ex.sentence}`);
