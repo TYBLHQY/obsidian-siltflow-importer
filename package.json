@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-siltflow-importer",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"description": "Import Siltflow SQLite database into your vault as Markdown notes with bilingual AI annotation cards",
 	"main": "main.js",
 	"scripts": {
