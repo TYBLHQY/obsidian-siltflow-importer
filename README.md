@@ -68,19 +68,25 @@ These are managed automatically — don't edit them by hand.
 
 ## Requirements
 
-- Obsidian 1.6.6+ (desktop)
+- Obsidian 1.13.0+ (desktop)
 - A Siltflow vault with its `data.db`
 - Desktop only — the plugin reads the database via Node.js and uses the native file picker
 
-> **Privacy**: the plugin reads the Siltflow database you point it at (which may live outside your vault) and writes Markdown into your vault. Everything stays local — nothing is uploaded.
+## Privacy & permissions
+
+- **Direct filesystem access**: the plugin uses Node.js `fs` to read the Siltflow
+  SQLite database at the path you configure (it lives outside your vault), then
+  writes the generated Markdown into your vault via the Obsidian vault API.
+  No other files are read or written.
+- **Everything stays local** — nothing is uploaded, no network requests, no telemetry.
 
 ## Install
 
 From source:
 
 ```bash
-pnpm install
-pnpm build
+npm install
+npm run build
 ```
 
 Copy `main.js`, `manifest.json`, `styles.css`, `sql-wasm.wasm`, and `sql-wasm.js` into `.obsidian/plugins/siltflow-importer/`, then enable the plugin in Obsidian.

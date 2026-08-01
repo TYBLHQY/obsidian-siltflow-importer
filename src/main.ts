@@ -44,20 +44,20 @@ export default class SiltflowImporterPlugin extends Plugin {
 
     // Register custom icon and add to ribbon
     addIcon("siltflow-importer", RIBBON_ICON);
-    this.addRibbonIcon("siltflow-importer", "Import Siltflow database", () => {
+    this.addRibbonIcon("siltflow-importer", "Import siltflow database", () => {
       this.confirmAndImport();
     });
 
     // Commands
     this.addCommand({
       id: "import-database",
-      name: "Import Siltflow database",
+      name: "Import siltflow database",
       callback: () => this.confirmAndImport(),
     });
 
     this.addCommand({
       id: "change-database",
-      name: "Change Siltflow database",
+      name: "Change siltflow database",
       callback: async () => {
         const picked = await this.pickDatabaseFile();
         if (picked) {
@@ -70,7 +70,8 @@ export default class SiltflowImporterPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const saved = (await this.loadData()) as Partial<SiltflowImporterSettings>;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
   }
 
   async saveSettings(): Promise<void> {
@@ -87,7 +88,7 @@ export default class SiltflowImporterPlugin extends Plugin {
    */
   private async resolveDbPath(): Promise<string | null> {
     let dbPath = this.settings.siltflowDbPath;
-    if (!dbPath || !existsSync(dbPath)) {
+    if (!dbPath || !(typeof existsSync === "function" && existsSync(dbPath))) {
       const picked = await this.pickDatabaseFile();
       if (!picked) return null;
       dbPath = picked;
@@ -105,7 +106,7 @@ export default class SiltflowImporterPlugin extends Plugin {
   private confirmAndImport(): void {
     // Skip the dialog when the user opted out.
     if (this.settings.skipImportConfirm) {
-      this.runImport();
+      void this.runImport();
       return;
     }
 
@@ -218,7 +219,7 @@ class ImportConfirmModal extends Modal {
 
   onOpen(): void {
     const { contentEl, titleEl } = this;
-    titleEl.setText("导入 Siltflow 数据库");
+    titleEl.setText("导入 siltflow 数据库");
 
     contentEl.createDiv().setText(
       "将按当前设置同步导入全部文档。",

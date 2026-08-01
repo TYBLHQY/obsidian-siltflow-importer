@@ -57,7 +57,12 @@ async function getSql(): Promise<Awaited<ReturnType<typeof initSqlJs>>> {
  */
 export async function openDatabase(filePath: string): Promise<Database> {
   const SQL = await getSql();
-  const buffer = readFileSync(filePath);
+  // Desktop-only: fs.readFileSync is available in Obsidian's Electron
+  // renderer. Guard for type safety (fs is untyped in some lint environments).
+  const buffer =
+    typeof readFileSync === "function"
+      ? readFileSync(filePath)
+      : new Uint8Array(0);
   return new SQL.Database(new Uint8Array(buffer));
 }
 

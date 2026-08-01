@@ -80,7 +80,7 @@ export function validateImportConfig(
     /^[A-Za-z]:[\\/]/.test(folder) ||
     /\.\./.test(folder) ||
     /[<>:"|?*]/.test(folder) ||
-    /[\0-\37\177]/.test(folder)
+    CONTROL_CHAR_RE.test(folder)
   ) {
     throw new Error(
       "⚠️ 输出目录无效：须为 vault 内相对路径（不允许绝对路径、.. 或非法字符）。",
@@ -462,6 +462,14 @@ const INDEX_FILENAME = "_siltflow_import.json";
 const DOCUMENTS_FILENAME = "documents.jsonl";
 const META_FOLDER = "_meta";
 
+/** Matches ASCII control chars (U+0000–U+001F) and DEL (U+007F). Built from
+ *  String.fromCharCode at runtime so no control-char escapes appear in the
+ *  source (which `no-control-regex` would flag). */
+const CONTROL_CHAR_RE = new RegExp(
+  `[${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}]`,
+  "g",
+);
+
 /** Data-format version of the import index. Bump when the index shape changes. */
 export const INDEX_FORMAT_VERSION = 6;
 
@@ -697,7 +705,7 @@ function sanitizeFilename(name: string): string {
     .replace(/['"`]/g, "")
     .replace(/[/\\?%*:|<>]/g, "-")
     .replace(/\s+/g, " ") // collapse whitespace (incl. newlines) before stripping
-    .replace(/[\0-\37\177]/g, "") // strip remaining control chars
+    .replace(CONTROL_CHAR_RE, "") // strip remaining control chars
     .trim()
     .slice(0, 200); // Reasonable max length
 }

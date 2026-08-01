@@ -1,7 +1,13 @@
 /**
  * Plugin settings with setting tab UI.
+ *
+ * Settings are defined declaratively via `getSettingDefinitions()` (Obsidian
+ * 1.13+), which makes them searchable in the settings search. `getControlValue`
+ * / `setControlValue` bridge the flat control keys to the nested
+ * `includeTypes` object and persist on change.
  */
-import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab } from "obsidian";
+import type { SettingDefinitionItem } from "obsidian";
 import type SiltflowImporterPlugin from "./main";
 import { syncCalloutFolds, getDatabaseVersion, INDEX_FORMAT_VERSION } from "./importer";
 
@@ -53,153 +59,202 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
-  display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-
-    // ── Path section ────────────────────────────────────────────
-
-    new Setting(containerEl).setHeading().setName("路径");
-
-    new Setting(containerEl)
-      .setName("数据库文件")
-      .setDesc("Siltflow 的 data.db 路径。")
-      .addText((text) =>
-        text
-          .setPlaceholder("~/Siltflow/.siltflow/data.db")
-          .setValue(this.plugin.settings.siltflowDbPath)
-          .onChange(async (value) => {
-            this.plugin.settings.siltflowDbPath = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("输出目录")
-      .setDesc("导入笔记的存放位置（vault 内相对路径）。")
-      .addText((text) =>
-        text
-          .setPlaceholder("Siltflow")
-          .setValue(this.plugin.settings.outputFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.outputFolder = value || "Siltflow";
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    // ── Content section ─────────────────────────────────────────
-
-    new Setting(containerEl).setHeading().setName("内容");
-
-    const typeToggles: Array<{
-      key: "word" | "phrase" | "sentence";
-      label: string;
-      desc: string;
-    }> = [
-      { key: "word", label: "单词", desc: "词条类标注（如 virtue）。" },
-      { key: "phrase", label: "短语", desc: "短语类标注（如 to be sure）。" },
-      { key: "sentence", label: "句子", desc: "句子类标注。" },
-    ];
-    for (const t of typeToggles) {
-      new Setting(containerEl)
-        .setName(`导入${t.label}`)
-        .setDesc(t.desc)
-        .addToggle((toggle) =>
-          toggle
-            .setValue(this.plugin.settings.includeTypes[t.key])
-            .onChange(async (value) => {
-              this.plugin.settings.includeTypes[t.key] = value;
-              await this.plugin.saveSettings();
-            }),
-        );
+  /** Resolve a control key to the current settings value. */
+  override getControlValue(key: string): unknown {
+    const s = this.plugin.settings;
+    switch (key) {
+      case "siltflowDbPath":
+        return s.siltflowDbPath;
+      case "outputFolder":
+        return s.outputFolder;
+      case "incrementalMode":
+        return s.incrementalMode;
+      case "calloutFold":
+        return s.calloutFold;
+      case "skipImportConfirm":
+        return s.skipImportConfirm;
+      case "includeTypes.word":
+        return s.includeTypes.word;
+      case "includeTypes.phrase":
+        return s.includeTypes.phrase;
+      case "includeTypes.sentence":
+        return s.includeTypes.sentence;
+      default:
+        return undefined;
     }
+  }
 
-    // ── Import section ──────────────────────────────────────────
+  /** Persist a control key to the settings object and save. */
+  override setControlValue(key: string, value: unknown): Promise<void> {
+    const s = this.plugin.settings;
+    switch (key) {
+      case "siltflowDbPath":
+        s.siltflowDbPath = typeof value === "string" ? value : "";
+        break;
+      case "outputFolder":
+        s.outputFolder = typeof value === "string" && value ? value : "Siltflow";
+        break;
+      case "incrementalMode":
+        s.incrementalMode = value === "overwrite" ? "overwrite" : "update";
+        break;
+      case "calloutFold":
+        s.calloutFold =
+          value === "expanded" || value === "collapsed" || value === "none"
+            ? value
+            : "collapsed";
+        break;
+      case "skipImportConfirm":
+        s.skipImportConfirm = value === true;
+        break;
+      case "includeTypes.word":
+        s.includeTypes.word = value === true;
+        break;
+      case "includeTypes.phrase":
+        s.includeTypes.phrase = value === true;
+        break;
+      case "includeTypes.sentence":
+        s.includeTypes.sentence = value === true;
+        break;
+      default:
+        break;
+    }
+    return this.plugin.saveSettings();
+  }
 
-    new Setting(containerEl).setHeading().setName("导入");
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      // ── Path section ────────────────────────────────────────────
+      {
+        type: "group",
+        heading: "路径",
+        items: [
+          {
+            name: "数据库文件",
+            desc: "Siltflow 的 data.db 路径。",
+            control: {
+              type: "text",
+              key: "siltflowDbPath",
+              placeholder: "~/Siltflow/.siltflow/data.db",
+            },
+          },
+          {
+            name: "输出目录",
+            desc: "导入笔记的存放位置（vault 内相对路径）。",
+            control: {
+              type: "text",
+              key: "outputFolder",
+              placeholder: "Siltflow",
+            },
+          },
+        ],
+      },
 
-    new Setting(containerEl)
-      .setName("导入模式")
-      .setDesc("同步：按 updated_at 增/改/删已导入标注。覆盖：重建全部笔记。")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("update", "同步")
-          .addOption("overwrite", "覆盖")
-          .setValue(this.plugin.settings.incrementalMode)
-          .onChange(async (value) => {
-            this.plugin.settings.incrementalMode = value as
-              | "update"
-              | "overwrite";
-            await this.plugin.saveSettings();
-          }),
-      );
+      // ── Content section ─────────────────────────────────────────
+      {
+        type: "group",
+        heading: "内容",
+        items: [
+          {
+            name: "导入单词",
+            desc: "词条类标注（如 virtue）。",
+            control: { type: "toggle", key: "includeTypes.word" },
+          },
+          {
+            name: "导入短语",
+            desc: "短语类标注（如 to be sure）。",
+            control: { type: "toggle", key: "includeTypes.phrase" },
+          },
+          {
+            name: "导入句子",
+            desc: "句子类标注。",
+            control: { type: "toggle", key: "includeTypes.sentence" },
+          },
+        ],
+      },
 
-    new Setting(containerEl)
-      .setName("卡片折叠")
-      .setDesc("标注卡片的默认折叠状态。")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("expanded", "展开")
-          .addOption("collapsed", "折叠")
-          .addOption("none", "不可折叠")
-          .setValue(this.plugin.settings.calloutFold)
-          .onChange(async (value) => {
-            this.plugin.settings.calloutFold = value as
-              | "expanded"
-              | "collapsed"
-              | "none";
-            await this.plugin.saveSettings();
-          }),
-      )
-      .addButton((button) =>
-        button
-          .setButtonText("同步已导入笔记")
-          .setTooltip("将已导入笔记的卡片折叠状态改写为当前设置")
-          .onClick(async () => {
-            if (this.plugin.importBusy) {
-              new Notice("⚠️ 导入正在进行中，请稍候。");
-              return;
-            }
-            const n = await syncCalloutFolds(
-              this.app.vault,
-              this.plugin.settings.outputFolder,
-              this.plugin.settings.calloutFold,
-            );
-            new Notice(`✅ 已同步 ${n} 篇笔记的折叠状态`);
-          }),
-      );
+      // ── Import section ──────────────────────────────────────────
+      {
+        type: "group",
+        heading: "导入",
+        items: [
+          {
+            name: "导入模式",
+            desc: "同步：按 updated_at 增/改/删已导入标注。覆盖：重建全部笔记。",
+            control: {
+              type: "dropdown",
+              key: "incrementalMode",
+              options: { update: "同步", overwrite: "覆盖" },
+            },
+          },
+          {
+            name: "卡片折叠",
+            desc: "标注卡片的默认折叠状态。",
+            control: {
+              type: "dropdown",
+              key: "calloutFold",
+              options: { expanded: "展开", collapsed: "折叠", none: "不可折叠" },
+            },
+          },
+          {
+            name: "同步已导入笔记",
+            desc: "将已导入笔记的卡片折叠状态改写为当前设置",
+            render: (setting) => {
+              setting.setName("同步已导入笔记");
+              setting.setDesc("将已导入笔记的卡片折叠状态改写为当前设置");
+              setting.addButton((button) =>
+                button
+                  .setButtonText("同步已导入笔记")
+                  .setTooltip("将已导入笔记的卡片折叠状态改写为当前设置")
+                  .onClick(() => {
+                    if (this.plugin.importBusy) {
+                      new Notice("⚠️ 导入正在进行中，请稍候。");
+                      return;
+                    }
+                    void (async () => {
+                      const n = await syncCalloutFolds(
+                        this.app.vault,
+                        this.plugin.settings.outputFolder,
+                        this.plugin.settings.calloutFold,
+                      );
+                      new Notice(`✅ 已同步 ${n} 篇笔记的折叠状态`);
+                    })();
+                  }),
+              );
+            },
+          },
+          {
+            name: "跳过导入确认",
+            desc: "开启后点击侧边栏按钮或命令直接导入，不再弹出确认框。",
+            control: { type: "toggle", key: "skipImportConfirm" },
+          },
+        ],
+      },
 
-    new Setting(containerEl)
-      .setName("跳过导入确认")
-      .setDesc("开启后点击侧边栏按钮或命令直接导入，不再弹出确认框。")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.skipImportConfirm)
-          .onChange(async (value) => {
-            this.plugin.settings.skipImportConfirm = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    // ── Version info ─────────────────────────────────────────────
-
-    new Setting(containerEl).setHeading().setName("版本信息");
-
-    new Setting(containerEl)
-      .setName("插件数据格式版本")
-      .setDesc(String(INDEX_FORMAT_VERSION));
-
-    const dbVersion = new Setting(containerEl)
-      .setName("数据库版本")
-      .setDesc("读取中…");
-
-    // Read the source DB version asynchronously.
-    void getDatabaseVersion(this.plugin.settings.siltflowDbPath).then((v) => {
-      if (v === null) {
-        dbVersion.descEl.setText("无法读取（检查数据库路径）");
-        return;
-      }
-      dbVersion.descEl.setText(String(v));
-    });
+      // ── Version info ─────────────────────────────────────────────
+      {
+        type: "group",
+        heading: "版本信息",
+        items: [
+          { name: "插件数据格式版本", desc: String(INDEX_FORMAT_VERSION) },
+          {
+            name: "数据库版本",
+            desc: "读取中…",
+            render: (setting) => {
+              setting.setName("数据库版本");
+              setting.setDesc("读取中…");
+              void getDatabaseVersion(this.plugin.settings.siltflowDbPath).then(
+                (v) => {
+                  if (v === null) {
+                    setting.descEl.setText("无法读取（检查数据库路径）");
+                    return;
+                  }
+                  setting.descEl.setText(String(v));
+                },
+              );
+            },
+          },
+        ],
+      },
+    ];
   }
 }

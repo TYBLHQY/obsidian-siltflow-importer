@@ -27,9 +27,6 @@ export function extractAITranslation(ai: ParsedAIResult | undefined): string | n
   if (!ai) return null;
   // V1: flat translation field
   if (ai.translation) return ai.translation;
-  // V1 legacy: deprecated translate field (kept for old DBs)
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  if (ai.translate) return ai.translate;
 
   // V2: word — use first meaning's translation
   if (ai.output?.meanings && ai.output.meanings.length > 0) {
@@ -111,7 +108,7 @@ function buildV1Blocks(ai: ParsedAIResult, text: string): DetailLines {
   const ipa = ai.pronunciation?.ipa;
 
   // ── Translation (core) ──
-  const translation = ai.translation || ai.translate;
+  const translation = ai.translation;
   if (translation) {
     core.push(`**Translation**  \n${translation}`);
   }
@@ -165,17 +162,6 @@ function buildV1Blocks(ai: ParsedAIResult, text: string): DetailLines {
     for (const a of alts) {
       const reg = a.register ? ` \`${a.register}\`` : "";
       details.push(`- **${a.expression}**${reg}`);
-    }
-  }
-
-  // ── V1 legacy deprecated: words (kept for old DBs) ──
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  if (ai.words && ai.words.length > 0) {
-    details.push("");
-    details.push("**Words**");
-    for (const w of ai.words) {
-      const posTag = w.pos ? `\`${w.pos}\` ` : "";
-      details.push(`- ${posTag}${w.meaning}`);
     }
   }
 

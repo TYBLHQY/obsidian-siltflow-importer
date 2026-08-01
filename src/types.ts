@@ -96,14 +96,6 @@ export interface ParsedAIResult {
     tags?: string[];
   };
 
-  // ── Deprecated V1 fields (legacy compatibility) ──
-  /** @deprecated Use translation. */
-  translate?: string;
-  /** @deprecated Use definitions. */
-  words?: Array<{ word: string; pos?: string; meaning: string }>;
-  /** @deprecated Use collocations. */
-  frequently?: Array<{ phrase: string; translation: string }>;
-
   // ── V2 fields ──
   input?: {
     text: string;

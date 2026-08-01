@@ -10,7 +10,7 @@ VAULT_PLUGIN_DIR="/data/workspace/obsidian-repo/new-obsidian-repo/.obsidian/plug
 cd "$PLUGIN_DIR"
 
 echo "==> Building..."
-pnpm build
+npm run build
 
 echo "==> Deploying to vault..."
 mkdir -p "$VAULT_PLUGIN_DIR"
