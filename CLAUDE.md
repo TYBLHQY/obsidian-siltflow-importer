@@ -44,7 +44,17 @@ main.ts (Plugin.onload: ribbon + commands)
 - **V1** (`AIAnnotationDataV1`): flat fields — `translation`, `definitions[]`, `examples[]`, `collocations[]`, `pronunciation.ipa`, `metadata.{difficulty,register}`
 - **V2** (`AIAnnotationDataV2`): structured — `input.{type,lemma,source_lang}` + `output` (shape depends on `input.type`: word→`meanings[]`, phrase→`translation`+`examples[]`, sentence→`translation`)
 
-**Incremental import:** `_siltflow_import.json` tracks document→file mapping. Annotation IDs embedded as `<!-- siltflow-annotation: ID -->` in markdown for dedup. In "append" mode new annotations are appended to the existing note via `buildCardBlocks`; "update" re-renders the whole note when any annotation's AI version changed; "overwrite" always re-renders.
+**Incremental import (sync mode):** the main index `_siltflow_import.json` holds
+only `formatVersion` / `lastImport` / `dbPath`. Document records live in
+`_meta/documents.jsonl` (one line per doc: file, anns file, summary time), and
+each document's annotation sync state in `_meta/anns/<doc>.jsonl` (one line per
+annotation: `{ "id", "importedAt" }`) — so no index file grows with the word
+count. Annotation IDs are embedded as `<!-- siltflow-annotation: ID -->` in
+markdown. Sync mode re-renders a document's note when any annotation is new,
+has a newer `updated_at` (annotation or its ai_result) than `importedAt`, or
+was deleted from the DB — a full re-render covers add/change/delete. The
+summary re-renders when its `updated_at` changed. Unchanged docs are skipped.
+`overwrite` mode deletes and rebuilds everything.
 
 **WASM:** sql.js requires `sql-wasm.wasm` + `sql-wasm.js` in the plugin dir. `scripts/copy-wasm.mjs` copies from `node_modules` post-build.
 
@@ -64,7 +74,7 @@ One `.md` file per document (single-file layout — no `words/` subfolder, no `.
 
 - `calloutFold`: `"expanded"` | `"collapsed"` | `"none"` — controls annotation callout folding
 - `includeTypes`: per-granularity toggles for V2 annotations (`word` / `phrase` / `sentence`)
-- `incrementalMode`: `"append"` | `"update"` | `"overwrite"`
+- `incrementalMode`: `"update"` (sync add/change/delete) | `"overwrite"` (full rebuild), default `"update"`
 
 Import always includes AI translations/explanations, skips docs with zero
 annotations, and drops `highlight`-kind annotations (pure PDF marks with no

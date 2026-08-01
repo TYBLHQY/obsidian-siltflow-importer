@@ -163,26 +163,35 @@ export interface DocumentRenderData {
   notePath: string;
 }
 
-/** The index file tracking all past imports. */
+/** The index file tracking all past imports. Document records live in a
+ *  separate `documents.jsonl` (see DocumentIndexLine) so the main index stays
+ *  tiny regardless of how many documents have been imported. */
 export interface ImportIndex {
   /** Schema version — bumped when the index shape changes. */
   formatVersion: number;
   lastImport: string;
   dbPath: string;
-  documents: Record<
-    string,
-    {
-      /** Vault-relative path of this document's note, e.g. "siltflow/<doc>.md". */
-      file: string;
-      /** Map of annotation ID → the position of its callout card in the note. */
-      annotations: Record<
-        string,
-        {
-          /** AI schema version at last write (for update-mode detection). */
-          aiVersion: number;
-        }
-      >;
-      lastSync: string;
-    }
-  >;
+}
+
+/** One line of the documents index (`_meta/documents.jsonl`). */
+export interface DocumentIndexLine {
+  /** The document ID. */
+  id: string;
+  /** Vault-relative path of this document's note, e.g. "siltflow/<doc>.md". */
+  file: string;
+  /** Vault-relative path of this document's annotation index (.jsonl),
+   *  e.g. "siltflow/_meta/anns/<doc>.jsonl". */
+  annsFile: string;
+  /** ISO timestamp of the doc summary at last write ("" if none). */
+  summaryImportedAt: string;
+  lastSync: string;
+}
+
+/** One line of a per-document annotation index (.jsonl). */
+export interface AnnotationIndexLine {
+  /** The annotation ID. */
+  id: string;
+  /** ISO timestamp of the annotation/ai_result at last write. The annotation
+   *  is re-imported when its current `updated_at` is newer. */
+  importedAt: string;
 }

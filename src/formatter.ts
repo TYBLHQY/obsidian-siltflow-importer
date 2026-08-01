@@ -346,19 +346,6 @@ export interface FormatterOptions {
   calloutFold: "expanded" | "collapsed" | "none";
 }
 
-/**
- * Render a subset of a document's annotations as card callouts only (no
- * frontmatter / title / summary). Used by the incremental-append path to add
- * newly discovered annotations to an existing note.
- */
-export function buildCardBlocks(
-  annotations: AnnotationRow[],
-  data: DocumentRenderData,
-  options: FormatterOptions,
-): string {
-  return annotations.map((ann) => buildAnnotationCard(ann, data, options)).join("\n");
-}
-
 // ---------------------------------------------------------------------------
 // Frontmatter
 // ---------------------------------------------------------------------------

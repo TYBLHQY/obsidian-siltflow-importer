@@ -14,7 +14,7 @@ export interface ImportModalCallbacks {
   /** Current incremental mode. */
   mode: string;
   /** Called when user changes the import mode in the footer dropdown. */
-  onModeChange: (mode: "append" | "update" | "overwrite") => void;
+  onModeChange: (mode: "update" | "overwrite") => void;
   /** Called to resolve the DB path (may involve a file picker).
    *  Throw "cancelled" to abort silently. */
   getDbPath: () => Promise<string>;
@@ -238,8 +238,7 @@ export class DocumentSelectionModal extends Modal {
     modeRow.createSpan({ text: "导入模式", cls: "siltflow-label" });
     const modeSelect = modeRow.createEl("select", "dropdown");
     const modes: Array<{ value: string; label: string; desc: string }> = [
-      { value: "append", label: "增量追加", desc: "只添加新文档和标注" },
-      { value: "update", label: "增量更新", desc: "追加 + 更新已有 AI 结果" },
+      { value: "update", label: "同步导入", desc: "增/改/删已导入标注" },
       { value: "overwrite", label: "全量覆盖", desc: "删除全部重新生成" },
     ];
     for (const m of modes) {
@@ -250,7 +249,7 @@ export class DocumentSelectionModal extends Modal {
     }
     modeSelect.value = this.cb.mode;
     modeSelect.addEventListener("change", () => {
-      this.cb.onModeChange(modeSelect.value as "append" | "update" | "overwrite");
+      this.cb.onModeChange(modeSelect.value as "update" | "overwrite");
     });
 
     // Action buttons

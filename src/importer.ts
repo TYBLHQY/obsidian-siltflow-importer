@@ -5,10 +5,20 @@
  *   1. Open SQLite database
  *   2. Query all tables
  *   3. Group by document
- *   4. Incremental diff against existing import index + .md files
+ *   4. Sync diff against the import index + per-doc annotation index
  *   5. Write one Markdown note per document (frontmatter + title + summary
  *      callout + one card-style callout per annotation)
- *   6. Update import index
+ *   6. Update import index + annotation index
+ *
+ * Sync rules (update mode): a document's note is re-rendered when any of its
+ * annotations is new, has a newer `updated_at` than the last import, or was
+ * deleted from the DB — a full re-render covers add/change/delete at once.
+ * The summary is re-rendered when its `updated_at` changed. Unchanged
+ * documents are skipped entirely.
+ *
+ * Annotation sync state lives in one `.jsonl` per document under `_meta/anns/`
+ * (one line per annotation: `{ "id", "importedAt" }`), so no index file ever
+ * grows with the total word count.
  */
 import type { App, Vault } from "obsidian";
 import { TFile } from "obsidian";
@@ -19,7 +29,6 @@ import {
 } from "./db";
 import {
   buildMarkdownNote,
-  buildCardBlocks,
   v2Granularity,
   type FormatterOptions,
 } from "./formatter";
@@ -31,6 +40,8 @@ import type {
   ParsedAIResult,
   DocumentRenderData,
   ImportIndex,
+  DocumentIndexLine,
+  AnnotationIndexLine,
 } from "./types";
 import type { SiltflowImporterSettings } from "./settings";
 
@@ -74,6 +85,7 @@ export async function importDatabase(
     // 2. Build lookup maps
     const aiResultMap = new Map<string, Map<string, ParsedAIResult>>();
     const aiVersionMap = new Map<string, Map<string, number>>();
+    const aiUpdatedAtMap = new Map<string, Map<string, string>>();
     for (const r of aiResults) {
       const docMap =
         aiResultMap.get(r.document_id) ||
@@ -81,9 +93,13 @@ export async function importDatabase(
       const verMap =
         aiVersionMap.get(r.document_id) ||
         aiVersionMap.set(r.document_id, new Map()).get(r.document_id)!;
+      const updMap =
+        aiUpdatedAtMap.get(r.document_id) ||
+        aiUpdatedAtMap.set(r.document_id, new Map()).get(r.document_id)!;
       try {
         docMap.set(r.annotation_id, JSON.parse(r.data) as ParsedAIResult);
         verMap.set(r.annotation_id, r.version);
+        updMap.set(r.annotation_id, r.updated_at);
       } catch {
         // skip unparseable AI results
       }
@@ -113,18 +129,21 @@ export async function importDatabase(
       return docAnnotations.length > 0;
     });
 
-    // 5. Load import index
+    // 5. Load import index + documents index
     const index = await loadImportIndex(vault, settings.outputFolder);
+    const documentsIndex = await loadDocumentsIndex(vault, settings.outputFolder);
 
     // Precompute safe doc filenames; dedup collisions with a docId suffix.
     const safeDocMap = computeSafeDocSlugs(docsToImport);
 
     // 6. Process each document
     const result: ImportResult = { created: 0, updated: 0, skipped: 0 };
+    const annsDir = `${settings.outputFolder}/${META_FOLDER}/anns`;
 
     for (const doc of docsToImport) {
       const safeDoc = safeDocMap.get(doc.id) || sanitizeFilename(doc.title);
       const notePath = `${settings.outputFolder}/${safeDoc}.md`;
+      const annsFilePath = `${annsDir}/${safeDoc}.jsonl`;
 
       const docAnnotations = (annotationsByDoc.get(doc.id) || [])
         .sort(
@@ -139,6 +158,7 @@ export async function importDatabase(
         );
 
       const aiVersions = aiVersionMap.get(doc.id) || new Map<string, number>();
+      const aiUpdatedAt = aiUpdatedAtMap.get(doc.id) || new Map<string, string>();
       const data: DocumentRenderData = {
         doc,
         annotations: docAnnotations,
@@ -157,74 +177,91 @@ export async function importDatabase(
       };
 
       await ensureFolderExists(vault, settings.outputFolder);
+      await ensureFolderExists(vault, annsDir);
 
       const options: FormatterOptions = {
         calloutFold: settings.calloutFold,
       };
 
-      const existingEntry = index.documents[doc.id];
-      const existingFile = existingEntry
+      let existingEntry: DocumentIndexLine | undefined =
+        documentsIndex.get(doc.id);
+      let existingFile = existingEntry
         ? vault.getAbstractFileByPath(existingEntry.file)
         : null;
 
-      // ── Decide write strategy per incremental mode ──
-      const fullRender =
-        settings.incrementalMode === "overwrite" ||
-        !existingEntry ||
-        !existingFile ||
-        (settings.incrementalMode === "update" &&
-          hasChangedAI(existingEntry, aiVersions));
+      // Handle doc rename / note-path change: drop the stale note + anns index.
+      if (existingEntry && existingEntry.file !== notePath) {
+        if (existingFile) {
+          await vault.delete(existingFile as TFile);
+          existingFile = null;
+        }
+        const oldAnns = vault.getAbstractFileByPath(existingEntry.annsFile);
+        if (oldAnns) await vault.delete(oldAnns as TFile);
+        existingEntry = undefined;
+      }
 
-      if (fullRender) {
+      let written = false;
+
+      if (settings.incrementalMode === "overwrite") {
+        // Full re-render. Clean up stale files, then write fresh.
+        if (existingEntry && existingFile && existingEntry.file === notePath) {
+          const oldAnns = vault.getAbstractFileByPath(existingEntry.annsFile);
+          if (oldAnns && oldAnns.path !== annsFilePath) await vault.delete(oldAnns as TFile);
+        }
         const content = buildMarkdownNote(data, options);
         if (existingFile) {
-          await vault.modify(existingFile as import("obsidian").TFile, content);
+          await vault.modify(existingFile as TFile, content);
           result.updated++;
         } else {
           await vault.create(notePath, content);
           result.created++;
         }
+        written = true;
+      } else if (!existingEntry || !existingFile) {
+        // New document — create the note.
+        const content = buildMarkdownNote(data, options);
+        await vault.create(notePath, content);
+        result.created++;
+        written = true;
       } else {
-        // Incremental append: add only annotations missing from the note.
-        const existingContent = await vault.read(
-          existingFile as import("obsidian").TFile,
-        );
-        const existingAnnIds = extractAnnotationIds(existingContent);
-        const newAnnotations = data.annotations.filter(
-          (a) => !existingAnnIds.has(a.id),
-        );
+        // Sync mode — re-render only when something changed.
+        const prevAnns = await loadAnnsIndex(vault, existingEntry.annsFile);
+        const needsRender =
+          summaryChanged(data.summary, existingEntry.summaryImportedAt) ||
+          hasAnnotationChanges(docAnnotations, prevAnns, aiUpdatedAt);
 
-        if (newAnnotations.length > 0) {
-          const appendix = buildCardBlocks(newAnnotations, data, options);
-          const updatedContent = existingContent.trimEnd() + "\n\n" + appendix + "\n";
-          await vault.modify(
-            existingFile as import("obsidian").TFile,
-            updatedContent,
-          );
+        if (needsRender) {
+          const content = buildMarkdownNote(data, options);
+          await vault.modify(existingFile as TFile, content);
           result.updated++;
+          written = true;
         } else {
           result.skipped++;
         }
       }
 
-      // Update index entry
-      const annotationsIndex: ImportIndex["documents"][string]["annotations"] = {};
-      for (const ann of docAnnotations) {
-        annotationsIndex[ann.id] = {
-          aiVersion: aiVersions.get(ann.id) ?? 0,
-        };
+      if (written) {
+        await saveAnnsIndex(
+          vault,
+          annsFilePath,
+          docAnnotations,
+          aiUpdatedAt,
+        );
+        documentsIndex.set(doc.id, {
+          id: doc.id,
+          file: notePath,
+          annsFile: annsFilePath,
+          summaryImportedAt: data.summary?.updated_at ?? "",
+          lastSync: new Date().toISOString(),
+        });
       }
-      index.documents[doc.id] = {
-        file: notePath,
-        annotations: annotationsIndex,
-        lastSync: new Date().toISOString(),
-      };
     }
 
-    // 7. Save import index
+    // 7. Save import index + documents index
     index.lastImport = new Date().toISOString();
     index.dbPath = dbPath;
     await saveImportIndex(vault, settings.outputFolder, index);
+    await saveDocumentsIndex(vault, settings.outputFolder, documentsIndex);
 
     return result;
   } finally {
@@ -232,14 +269,49 @@ export async function importDatabase(
   }
 }
 
-/** True when any of the doc's annotations has a newer AI version than last written. */
-function hasChangedAI(
-  existingEntry: ImportIndex["documents"][string],
-  aiVersions: Map<string, number>,
+/**
+ * The effective "last changed" timestamp of an annotation for sync purposes —
+ * the later of the annotation row and its ai_result, so AI updates also
+ * trigger a re-render. Returns the later ISO string, or whichever is present.
+ */
+function annotationChangedAt(
+  ann: AnnotationRow,
+  aiUpdatedAt: Map<string, string>,
+): string {
+  const annT = ann.updated_at || "";
+  const aiT = aiUpdatedAt.get(ann.id) || "";
+  if (!annT) return aiT;
+  if (!aiT) return annT;
+  return annT > aiT ? annT : aiT;
+}
+
+/** True when the summary row's updated_at differs from the last written one. */
+function summaryChanged(
+  summary: SummaryRow | null,
+  prevImportedAt: string,
 ): boolean {
-  for (const [annId, version] of aiVersions) {
-    const prev = existingEntry.annotations?.[annId]?.aiVersion ?? 0;
-    if (version !== prev) return true;
+  const cur = summary?.updated_at ?? "";
+  return cur !== prevImportedAt;
+}
+
+/** True when any annotation is new, changed, or deleted vs the previous index. */
+function hasAnnotationChanges(
+  current: AnnotationRow[],
+  prevAnns: Map<string, string>,
+  aiUpdatedAt: Map<string, string>,
+): boolean {
+  const currentIds = new Set(current.map((a) => a.id));
+  // Deleted in the DB?
+  for (const id of prevAnns.keys()) {
+    if (!currentIds.has(id)) return true;
+  }
+  for (const ann of current) {
+    const prev = prevAnns.get(ann.id);
+    // New annotation?
+    if (!prev) return true;
+    // Changed since last import?
+    const changedAt = annotationChangedAt(ann, aiUpdatedAt);
+    if (changedAt && changedAt > prev) return true;
   }
   return false;
 }
@@ -280,31 +352,20 @@ function includeAnnotation(
   return includeTypes[type];
 }
 
-/** Extract the set of siltflow-annotation IDs embedded in a note's callouts. */
-function extractAnnotationIds(content: string): Set<string> {
-  const ids = new Set<string>();
-  const re = /siltflow-annotation:\s*([0-9a-f-]{36}|[^\s,]+)/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(content)) !== null) {
-    ids.add(m[1]);
-  }
-  return ids;
-}
-
 // ---------------------------------------------------------------------------
 // Import index helpers
 // ---------------------------------------------------------------------------
 
 const INDEX_FILENAME = "_siltflow_import.json";
+const DOCUMENTS_FILENAME = "documents.jsonl";
 const META_FOLDER = "_meta";
-const INDEX_FORMAT_VERSION = 4;
+const INDEX_FORMAT_VERSION = 6;
 
 function freshIndex(): ImportIndex {
   return {
     formatVersion: INDEX_FORMAT_VERSION,
     lastImport: "",
     dbPath: "",
-    documents: {},
   };
 }
 
@@ -321,7 +382,7 @@ async function loadImportIndex(
     const content = await vault.read(file as import("obsidian").TFile);
     const parsed = JSON.parse(content) as ImportIndex;
     if (parsed.formatVersion !== INDEX_FORMAT_VERSION) {
-      // Old schema (single-file-per-doc or earlier) — start fresh.
+      // Old schema (documents nested in the main index) — start fresh.
       return freshIndex();
     }
     return parsed;
@@ -347,6 +408,103 @@ async function saveImportIndex(
 }
 
 // ---------------------------------------------------------------------------
+// Documents index (.jsonl)
+// ---------------------------------------------------------------------------
+
+const DOCUMENTS_PATH = (outputFolder: string) =>
+  `${outputFolder}/${META_FOLDER}/${DOCUMENTS_FILENAME}`;
+
+/** Read the documents index into a map of document ID → DocumentIndexLine. */
+async function loadDocumentsIndex(
+  vault: Vault,
+  outputFolder: string,
+): Promise<Map<string, DocumentIndexLine>> {
+  const file = vault.getAbstractFileByPath(DOCUMENTS_PATH(outputFolder));
+  if (!(file instanceof TFile)) return new Map();
+  const content = await vault.read(file);
+  const map = new Map<string, DocumentIndexLine>();
+  for (const line of content.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const obj = JSON.parse(t) as DocumentIndexLine;
+      map.set(obj.id, obj);
+    } catch {
+      // skip malformed lines
+    }
+  }
+  return map;
+}
+
+/** Rewrite the documents index: one JSON line per document. */
+async function saveDocumentsIndex(
+  vault: Vault,
+  outputFolder: string,
+  documents: Map<string, DocumentIndexLine>,
+): Promise<void> {
+  const lines: string[] = [...documents.values()].map((d) =>
+    JSON.stringify(d),
+  );
+  const content = lines.length > 0 ? lines.join("\n") + "\n" : "";
+  const file = vault.getAbstractFileByPath(DOCUMENTS_PATH(outputFolder));
+  if (file) {
+    await vault.modify(file as TFile, content);
+  } else {
+    await ensureFolderExists(vault, getFolderFromPath(DOCUMENTS_PATH(outputFolder)));
+    await vault.create(DOCUMENTS_PATH(outputFolder), content);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-document annotation index (.jsonl)
+// ---------------------------------------------------------------------------
+
+/** Read a doc's annotation index into a map of annotation ID → importedAt. */
+async function loadAnnsIndex(
+  vault: Vault,
+  annsFilePath: string,
+): Promise<Map<string, string>> {
+  const file = vault.getAbstractFileByPath(annsFilePath);
+  if (!(file instanceof TFile)) return new Map();
+  const content = await vault.read(file);
+  const map = new Map<string, string>();
+  for (const line of content.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      const obj = JSON.parse(t) as AnnotationIndexLine;
+      map.set(obj.id, obj.importedAt);
+    } catch {
+      // skip malformed lines
+    }
+  }
+  return map;
+}
+
+/** Rewrite a doc's annotation index: one JSON line per annotation. */
+async function saveAnnsIndex(
+  vault: Vault,
+  annsFilePath: string,
+  annotations: AnnotationRow[],
+  aiUpdatedAt: Map<string, string>,
+): Promise<void> {
+  const lines: string[] = annotations.map((ann) =>
+    JSON.stringify({
+      id: ann.id,
+      importedAt: annotationChangedAt(ann, aiUpdatedAt),
+    }),
+  );
+  const content = lines.length > 0 ? lines.join("\n") + "\n" : "";
+  const file = vault.getAbstractFileByPath(annsFilePath);
+  if (file) {
+    await vault.modify(file as TFile, content);
+  } else {
+    await ensureFolderExists(vault, getFolderFromPath(annsFilePath));
+    await vault.create(annsFilePath, content);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Fold-state sync
 // ---------------------------------------------------------------------------
 
@@ -362,11 +520,11 @@ export async function syncCalloutFolds(
   outputFolder: string,
   calloutFold: "expanded" | "collapsed" | "none",
 ): Promise<number> {
-  const index = await loadImportIndex(vault, outputFolder);
+  const documents = await loadDocumentsIndex(vault, outputFolder);
   const target = FOLD_MARKER[calloutFold];
   let rewritten = 0;
 
-  for (const entry of Object.values(index.documents)) {
+  for (const entry of documents.values()) {
     const file = vault.getAbstractFileByPath(entry.file);
     if (!(file instanceof TFile)) continue;
 
@@ -396,6 +554,12 @@ const FOLD_MARKER: Record<"expanded" | "collapsed" | "none", string> = {
 // ---------------------------------------------------------------------------
 // Path utilities
 // ---------------------------------------------------------------------------
+
+function getFolderFromPath(filePath: string): string {
+  const parts = filePath.split("/");
+  parts.pop(); // remove filename
+  return parts.join("/");
+}
 
 async function ensureFolderExists(
   vault: Vault,

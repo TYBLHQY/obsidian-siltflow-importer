@@ -15,7 +15,7 @@ export interface SiltflowImporterSettings {
   /** Output folder inside the Obsidian vault (relative to root). */
   outputFolder: string;
   /** Incremental import mode. */
-  incrementalMode: "append" | "update" | "overwrite";
+  incrementalMode: "update" | "overwrite";
   /** Fold state of each annotation callout in the note. */
   calloutFold: "expanded" | "collapsed" | "none";
   /** Per-granularity include toggles for V2 annotations (word/phrase/sentence). */
@@ -29,7 +29,7 @@ export interface SiltflowImporterSettings {
 export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
   siltflowDbPath: "",
   outputFolder: "Siltflow",
-  incrementalMode: "append",
+  incrementalMode: "update",
   calloutFold: "collapsed",
   includeTypes: {
     word: true,
@@ -116,19 +116,17 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "导入策略" });
 
     new Setting(containerEl)
-      .setName("增量导入模式")
+      .setName("导入模式")
       .setDesc(
-        "追加：只添加新标注。更新：追加 + 更新已有 AI 结果。覆盖：删除全部重新导入。",
+        "同步：增/改/删已导入标注（按 updated_at 比对）。覆盖：删除全部重新导入。",
       )
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("append", "增量追加")
-          .addOption("update", "增量更新")
+          .addOption("update", "同步导入")
           .addOption("overwrite", "全量覆盖")
           .setValue(this.plugin.settings.incrementalMode)
           .onChange(async (value) => {
             this.plugin.settings.incrementalMode = value as
-              | "append"
               | "update"
               | "overwrite";
             await this.plugin.saveSettings();
