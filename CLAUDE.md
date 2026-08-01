@@ -63,9 +63,9 @@ One `.md` file per document (single-file layout — no `words/` subfolder, no `.
 ## Settings
 
 - `calloutFold`: `"expanded"` | `"collapsed"` | `"none"` — controls annotation callout folding
-- `includeAIResults`: toggle AI translations/explanations in callouts
 - `includeTypes`: per-granularity toggles for V2 annotations (`word` / `phrase` / `sentence`)
 - `incrementalMode`: `"append"` | `"update"` | `"overwrite"`
 
-Import always skips docs with zero annotations and drops `highlight`-kind
-annotations (pure PDF marks with no AI data).
+Import always includes AI translations/explanations, skips docs with zero
+annotations, and drops `highlight`-kind annotations (pure PDF marks with no
+AI data).

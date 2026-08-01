@@ -159,7 +159,6 @@ export async function importDatabase(
       await ensureFolderExists(vault, settings.outputFolder);
 
       const options: FormatterOptions = {
-        includeAIResults: settings.includeAIResults,
         calloutFold: settings.calloutFold,
       };
 

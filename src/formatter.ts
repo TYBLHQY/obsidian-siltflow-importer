@@ -342,7 +342,6 @@ export function buildMarkdownNote(
 }
 
 export interface FormatterOptions {
-  includeAIResults: boolean;
   /** Controls the fold marker on each annotation callout. */
   calloutFold: "expanded" | "collapsed" | "none";
 }
@@ -440,12 +439,12 @@ function buildAnnotationCard(
 
   // ── Big translation (card's visual anchor) ──
   const translation = extractAITranslation(ai);
-  if (options.includeAIResults && translation) {
+  if (translation) {
     body.push(`<span class="card-translation">${escapeInline(translation)}</span>`);
   }
 
   // ── AI detail sections (translation already shown in the header — strip it) ──
-  if (options.includeAIResults && ai) {
+  if (ai) {
     const { core, details } = buildAIDetailBlocks(ai, ann.text ?? "");
     const coreFiltered = core.filter((l) => !l.startsWith("**Translation**"));
     if (coreFiltered.length > 0 || details.length > 0) {

@@ -14,8 +14,6 @@ export interface SiltflowImporterSettings {
   siltflowDbPath: string;
   /** Output folder inside the Obsidian vault (relative to root). */
   outputFolder: string;
-  /** Include AI translations and explanations in output. */
-  includeAIResults: boolean;
   /** Incremental import mode. */
   incrementalMode: "append" | "update" | "overwrite";
   /** Fold state of each annotation callout in the note. */
@@ -31,7 +29,6 @@ export interface SiltflowImporterSettings {
 export const DEFAULT_SETTINGS: SiltflowImporterSettings = {
   siltflowDbPath: "",
   outputFolder: "Siltflow",
-  includeAIResults: true,
   incrementalMode: "append",
   calloutFold: "collapsed",
   includeTypes: {
@@ -83,22 +80,6 @@ export class SiltflowImporterSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.outputFolder)
           .onChange(async (value) => {
             this.plugin.settings.outputFolder = value || "Siltflow";
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    // ── Content section ─────────────────────────────────────────
-
-    containerEl.createEl("h3", { text: "内容选项" });
-
-    new Setting(containerEl)
-      .setName("包含 AI 翻译和解释")
-      .setDesc("将 AI 生成的翻译和解释写入标注 callout 中。")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.includeAIResults)
-          .onChange(async (value) => {
-            this.plugin.settings.includeAIResults = value;
             await this.plugin.saveSettings();
           }),
       );
