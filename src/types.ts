@@ -104,6 +104,15 @@ export interface ParsedAIResult {
     type: "word" | "phrase" | "sentence";
     lemma?: string | null;
   };
+  /**
+   * Document context (up to 5000 chars) echoed from AIAnnotationDataV2.
+   * Upstream renamed this from `context` to `documentContext` (schema v6);
+   * the old key may still appear in pre-migration data.
+   */
+  documentContext?: string | null;
+  /** Legacy alias — only present in blobs written before schema v6 (the
+   *  upstream migration renamed this field to `documentContext`). Kept for
+   *  importing pre-v6 databases; new data uses `documentContext` instead. */
   context?: string | null;
   /** V2 output — shape depends on input.type (WordOutputV2 | PhraseOutputV2 | SentenceOutputV2). */
   output?: {

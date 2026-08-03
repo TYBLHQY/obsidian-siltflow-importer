@@ -370,7 +370,9 @@ function buildFrontmatter(data: DocumentRenderData): string {
 
 function buildSummaryCallout(text: string, aiVersion: number): string {
   const lines: string[] = [];
-  lines.push(`> [!summary]- Summary`);
+  // No fold marker (`+`/`-`) — an always-expanded callout that can't be
+  // collapsed in Obsidian.
+  lines.push(`> [!summary] Summary`);
   if (aiVersion > 0) {
     lines.push(`> <!-- siltflow-ai-version: ${aiVersion} -->`);
   }
