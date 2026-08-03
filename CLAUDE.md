@@ -10,11 +10,24 @@ Upstream Siltflow project: `/data/workspace/code-repo/web-proj/siltflow` — Dri
 
 ## Commands
 
+> ⚠️ **包管理器是 npm，不是 pnpm。** 项目用 `package-lock.json`（tracked），`.gitignore` 排除了 `pnpm-lock.yaml`。**不要用 pnpm 跑命令**——没有 `pnpm-lock.yaml` 时 pnpm 会触发 `pnpm install`（可能被安全策略拦截），还会自动生成 `pnpm-workspace.yaml` 污染工作区（本仓库踩过，记得删掉该文件并改用 npm）。
+
 ```bash
-pnpm build    # tsc type-check → esbuild bundle → copy WASM
-bash deploy.sh   # build + copy output files to local Obsidian vault plugins dir
-pnpm dev      # watch mode (esbuild + WASM copy)
+npm run build   # tsc type-check → esbuild bundle → copy WASM
+bash deploy.sh  # build + copy output files to local Obsidian vault plugins dir
+npm run dev     # watch mode (esbuild + WASM copy)
+npm run lint    # eslint src/
 ```
+
+`main.js` / `*.wasm` / `src/sql-wasm.wasm` / `*.js.map` 均被 `.gitignore` 排除——它们是构建产物，**不提交**。CI 的 release job 负责在 tag 时构建发布产物。
+
+## 开发环境
+
+- **Node 24 + npm**（`package-lock.json` 已提交）。装依赖：`npm ci`（干净安装，CI 同款）。
+- **构建产物不入库**：`main.js` 由 `tsc -noEmit` + `esbuild.config.mjs production` 生成，发布由 CI 完成，本地不用提交。
+- **sql.js WASM**：`scripts/copy-wasm.mjs` 在 build 前把 `node_modules/sql.js` 的 `sql-wasm.wasm` 拷到 `src/sql-wasm.wasm`（源目录，非产物）。`main.js` 里通过相对路径加载它，所以插件发布包必须包含 wasm。
+- **本地部署到 Obsidian vault**：`deploy.sh` 构建后拷贝 `main.js manifest.json styles.css icon.svg` 到 `VAULT_PLUGIN_DIR`（硬编码路径 `/data/workspace/obsidian-repo/new-obsidian-repo/.obsidian/plugins/siltflow-importer`）。改完代码用 `bash deploy.sh` 即可在 Obsidian 里热重载（需在 vault 中 `Developer mode` → `Reload app without saving`）。
+- 上游 Siltflow 桌面端项目在 `/data/workspace/code-repo/web-proj/siltflow`，其 Drizzle schema 在 `electron/database/schema.ts`、AI 数据类型在 `src/types/annotation.ts`。本仓库的 `src/types.ts` 与之保持同步，上游 schema/字段名变更时需同步（如 v6 的 `context` → `documentContext`）。
 
 ## Architecture
 
@@ -85,3 +98,55 @@ and throws before any vault write when the config is invalid — the DB path is
 empty, or the output folder is empty / not a safe vault-relative path (no
 absolute paths, `..` traversal, drive letters, or illegal filename chars).
 The modal surfaces the error as a Notice.
+
+## 发布流程
+
+发版统一走 **patch/minor bump**（`1.0.x` → 下一个），tag 触发 CI。
+
+### 版本号一致性（三处必须同步）
+
+| 文件 | 作用 |
+|------|------|
+| `package.json` → `version` | npm 元数据，构建脚本日志显示 |
+| `manifest.json` → `version` | **Obsidian 社区插件显示的版本**（真实版本真相） |
+| `versions.json` → 顶部新键 | 版本 → `minAppVersion` 映射表，供社区库判断兼容性 |
+
+> 三处不一致会造成混乱（历史上出现过 package.json/manifest.json 漂移）。**改版本时三处一起改**，并确认 `manifest.json` 与 `package.json` 一致。
+
+### 操作步骤
+
+```bash
+# 1. 同步三处版本号（package.json + manifest.json + versions.json）
+#    versions.json 顶部加一行 "1.0.x": "1.13.0"（minAppVersion 与上一版相同即可）
+
+# 2. 功能改动 + bump 分开提交（历史惯例：feat/fix 单独 commit）
+git add src/... 
+git commit -m "feat: <描述>"
+git add package.json manifest.json versions.json
+git commit -m "chore: bump version to 1.0.4"
+
+# 3. 打轻量 tag（无 v 前缀，与历史 1.0.0~1.0.3 一致；CI 监听 tags: "*"）
+git tag 1.0.4
+
+# 4. 先推 master、再推 tag
+git push origin master
+git push origin 1.0.4
+```
+
+### CI 行为
+
+- `.github/workflows/release.yml`：监听 `push: tags: "*"`，`npm ci` → `npm run build` → 打包 `main.js manifest.json styles.css` → attest build provenance → 用 `softprops/action-gh-release` 创建 GitHub Release。`main.js` 不入库，完全由 CI 在 tag 时构建。
+- `.github/workflows/release-notes.yml`：监听同一 tag，用 `generateReleaseNotes` 自动生成 release notes（对比上一个 tag 的 commit range），**无需手写 notes**。
+- 两个 workflow 并行触发；上一个版本（1.0.3）Release 约 22s 跑完。
+- 验证发布成功：
+  ```bash
+  gh run list --repo TYBLHQY/obsidian-siltflow-importer --limit 4
+  gh release view 1.0.4 --repo TYBLHQY/obsidian-siltflow-importer
+  ```
+
+### 发版前检查清单
+
+1. 功能改动已提交（`git status` 干净，除构建产物外无多余文件）
+2. 三处版本号一致
+3. 本地模拟 CI：`npm ci && npm run build` 通过，产物齐全
+4. 确认无 `pnpm-workspace.yaml` / `pnpm-lock.yaml` 等污染文件
